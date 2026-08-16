@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -49,7 +50,12 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background,
                 ) {
-                    DeepUniverseApp(onFinish = { finish() })
+                    // targetSdk 35 makes edge-to-edge mandatory, so the window extends behind the
+                    // status and navigation bars. Without this the creator's tabs would sit under
+                    // the clock and its confirm button under the gesture bar.
+                    Box(Modifier.safeDrawingPadding()) {
+                        DeepUniverseApp(onFinish = { finish() })
+                    }
                 }
             }
         }

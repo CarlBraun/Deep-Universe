@@ -416,8 +416,8 @@ private fun DrawScope.drawBrow(
 
     val brow = Path().apply {
         moveTo(inner.x, inner.y + thickness * 0.5f)
-        quadraticBezierTo(peak.x, peak.y - thickness * 0.1f, outer.x, outer.y)
-        quadraticBezierTo(peak.x, peak.y + thickness, inner.x, inner.y + thickness * 0.5f)
+        quadraticTo(peak.x, peak.y - thickness * 0.1f, outer.x, outer.y)
+        quadraticTo(peak.x, peak.y + thickness, inner.x, inner.y + thickness * 0.5f)
         close()
     }
     drawPath(brow, hair.darken(0.85f))
@@ -450,8 +450,8 @@ private fun DrawScope.drawNose(
     // Tip and nostril wings.
     val tip = Path().apply {
         moveTo(cx - halfW, tipY)
-        quadraticBezierTo(cx - halfW * 0.55f, tipY + halfW * 0.62f, cx, tipY + halfW * 0.30f)
-        quadraticBezierTo(cx + halfW * 0.55f, tipY + halfW * 0.62f, cx + halfW, tipY)
+        quadraticTo(cx - halfW * 0.55f, tipY + halfW * 0.62f, cx, tipY + halfW * 0.30f)
+        quadraticTo(cx + halfW * 0.55f, tipY + halfW * 0.62f, cx + halfW, tipY)
     }
     drawPath(
         tip,
@@ -518,7 +518,7 @@ private fun DrawScope.drawMouth(
     drawPath(
         Path().apply {
             moveTo(cx - halfW * 0.35f, mouthY + lowerH * 0.55f)
-            quadraticBezierTo(cx, mouthY + lowerH * 0.78f, cx + halfW * 0.35f, mouthY + lowerH * 0.55f)
+            quadraticTo(cx, mouthY + lowerH * 0.78f, cx + halfW * 0.35f, mouthY + lowerH * 0.55f)
         },
         color = Color.White.copy(alpha = 0.22f),
         style = Stroke(width = halfW * 0.09f, cap = StrokeCap.Round),
@@ -690,7 +690,7 @@ private fun DrawScope.drawFrontHair(
             val step = (crownHalf * 2f) / 5f
             repeat(5) { i ->
                 val depth = if (i % 2 == 0) 0.30f else 0.19f
-                quadraticBezierTo(
+                quadraticTo(
                     x + step * 0.5f, faceTop + faceSpan * depth,
                     x + step, faceTop + faceSpan * 0.12f,
                 )

@@ -157,6 +157,17 @@ From the command line:
 ./gradlew :core:test             # run the unit tests
 ```
 
+### What has been verified, and how
+
+| Layer | How it's checked |
+| --- | --- |
+| `core/` — character, photo and game logic | 62 unit tests, run on the JVM |
+| `app/photo/`, `app/data/`, `GameViewModel`, `CastLooks` | Type-checked against the real `core` jar plus hand-written stubs of the small Android/ML Kit surface they use |
+| `app/ui/` Compose screens | Parsed clean; Compose/Material3 API usage checked against the published API docs |
+
+The Compose screens have not been through a full Android build — that needs the Android SDK and
+Google's Maven repo. Build once in Android Studio before trusting the UI layer.
+
 ### Building `core` without the Android SDK
 
 The game logic is a plain Kotlin module and can be built and tested on any machine — a CI runner, a

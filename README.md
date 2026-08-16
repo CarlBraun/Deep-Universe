@@ -147,6 +147,26 @@ reads correctly for every player.
 
 ## Building
 
+### On GitHub — no local setup at all
+
+A workflow builds the APK on GitHub's runners, so you can get an installable file without
+installing Android Studio or the SDK.
+
+1. Push to any branch, or go to the repo's **Actions** tab → **Build** → **Run workflow**.
+2. Wait for the run to finish (a few minutes).
+3. Open the finished run and download **`deep-universe-debug-apk`** from the *Artifacts* section
+   at the bottom of the page.
+4. Unzip it and copy `app-debug.apk` to an Android phone. You will need to allow
+   "install from unknown sources" the first time.
+
+If a run fails, the summary page lists the compile errors directly, and the full logs are attached
+as the **`build-logs`** artifact.
+
+Note that the debug APK is unsigned for distribution — it installs fine by hand, but it is not
+suitable for the Play Store. That needs a release build with your own signing key.
+
+### Locally
+
 Open in **Android Studio** (Ladybug or newer) and run. Requires JDK 17+ and the Android SDK
 (compileSdk 35, minSdk 24).
 

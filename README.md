@@ -1,11 +1,13 @@
 # Deep Universe
 
-An Android romance/visual-novel game in the vein of *Love and Deepspace*, with a mixed cast of male
-and female love interests — and a character creator that can build your character from a photo of
-your face, entirely on-device, while leaving every parameter yours to change.
+An Android romance game with a mixed cast of male and female love interests, built around two ideas:
+a **walk-around world** you explore Pokémon-style to find people, and a **character creator that can
+build your character from a photo of your face** — entirely on-device, with every parameter still
+yours to change.
 
-Aurora-9 is a station on the edge of the Drift. Something out there has been repeating a nine-second
-pattern for eleven days, and you are the only person aboard who can hear it.
+You are the resonance pilot of Aurora-9, down at the station's planetside camp on shore rotation.
+Something out in the Drift has been repeating a nine-second pattern for eleven days, and you are the
+only person here who can hear it.
 
 ---
 
@@ -13,6 +15,7 @@ pattern for eleven days, and you are the only person aboard who can hear it.
 
 | Area | State |
 | --- | --- |
+| Walk-around overworld, 7 locations | Complete and unit-tested |
 | Photo → character generation | Complete and unit-tested |
 | Manual character editor (30 parameters, colours, hair, presets) | Complete |
 | Live parametric portrait renderer | Complete |
@@ -20,7 +23,53 @@ pattern for eleven days, and you are the only person aboard who can hear it.
 | Cast of six love interests | Complete, with 9 shipped scenes |
 | Character art, voice, music, 3D | Not started — see [Roadmap](#roadmap) |
 
-62 unit tests cover the character pipeline and the game logic.
+91 unit tests cover the world, the character pipeline and the game logic.
+
+---
+
+## The world
+
+You walk a pixel version of your own character between locations and talk to whoever you find. There
+is no character-select menu: finding people *is* getting to know them.
+
+```
+              The Great Lodge          (meetings, and Sev over a map)
+                     |
+  Cabin Row ---- Camp Clearing         (the fire pit, and Idris cooking)
+   |     |             |
+ Field  Your      The Pine Path        (Rook, off the path)
+  Lab   Cabin          |
+ (Nadia)            The Beach          (Lyra at the water, Kaito on the pier)
+```
+
+Nobody is placed at random — each character is where their role puts them, so the world tells you
+who someone is before they say a word. Walk up, face them, press **TALK**, and the full-size portrait
+and dialogue open. If they have no new scene for you, they say something in passing rather than
+nothing at all.
+
+The walking sprite is drawn from the same `CharacterAppearance` as the portrait, so the skin tone,
+hair colour and hairstyle you chose are what walks around the camp — one source of truth, no second
+set of art to keep in sync.
+
+### Maps are ASCII
+
+Locations are authored as pictures, in `WorldAtlas`:
+
+```
+TTTTTTT--TTTTTTT
+T..,,......,,..T
+T.*..........*.T
+T.....---......T
+T....--f--.....T      f = the campfire
+T.....---......T
+T...x.....x....-      - = the path out east, to Cabin Row
+```
+
+You can see at a glance that the path connects, which no list of coordinates would give you. The
+tests then check what the picture cannot: that every exit lands somewhere walkable, that no door
+bounces you straight back, that nobody is standing inside a tree, and that **every area and every
+character is reachable on foot from where the player starts**. One test walks the whole route from
+the starting cabin to the beach, tile by tile.
 
 ---
 
@@ -99,11 +148,13 @@ core/                     Pure Kotlin/JVM — no Android dependency, fully unit-
   character/              CharacterAppearance, AppearanceParam, palettes, presets
   color/                  ARGB maths and perceptual colour distance
   photo/                  MeshLandmarkMapper, FaceGeometry, PhotoToAppearance
+  world/                  WorldAtlas (the maps), WorldEngine (movement, interaction)
   game/                   StoryEngine, GameState, Cast, StoryLibrary
 
 app/                      Android + Jetpack Compose
   photo/                  ML Kit adapter, bitmap colour sampling, EXIF handling
   ui/avatar/              Parametric portrait renderer (Compose Canvas)
+  ui/overworld/           Tile art, pixel sprites, the walk-around screen
   ui/creator/             Character creator, photo pickers
   ui/home, ui/route, ui/story
   data/                   Atomic JSON save file
@@ -181,7 +232,7 @@ From the command line:
 
 | Layer | How it's checked |
 | --- | --- |
-| `core/` — character, photo and game logic | 62 unit tests, run on the JVM |
+| `core/` — world, character, photo and game logic | 91 unit tests, run on the JVM |
 | `app/photo/`, `app/data/`, `GameViewModel`, `CastLooks` | Type-checked against the real `core` jar plus hand-written stubs of the small Android/ML Kit surface they use |
 | `app/ui/` Compose screens | Parsed clean; Compose/Material3 API usage checked against the published API docs |
 
@@ -209,6 +260,8 @@ Nearest first:
    parameters, keeping the renderer as the fallback layer.
 2. **More story.** The engine is content-driven — `StoryLibrary` is a list of data. Adding scenes
    requires no engine or UI change.
+3. **A living world.** Characters currently stand in one place; the natural next step is a daily
+   schedule, so who you find at the lodge depends on the time of day.
 3. **Daily loop.** Messages, calls, gifts and a reason to open the app on a Tuesday.
 4. **Save slots and cloud sync.** The save format already round-trips and tolerates unknown fields
    from future versions.

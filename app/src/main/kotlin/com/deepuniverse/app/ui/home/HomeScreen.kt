@@ -37,6 +37,7 @@ import com.deepuniverse.core.game.AffectionLevel
 import com.deepuniverse.core.game.Cast
 import com.deepuniverse.core.game.GameState
 import com.deepuniverse.core.game.LoveInterest
+import com.deepuniverse.core.world.WorldAtlas
 
 /** Aurora-9's crew deck: the player, and everyone aboard worth knowing. */
 @Composable
@@ -44,6 +45,7 @@ fun HomeScreen(
     state: GameState,
     onOpenRoute: (String) -> Unit,
     onEditCharacter: () -> Unit,
+    onBack: () -> Unit,
 ) {
     LazyVerticalGrid(
         columns = GridCells.Fixed(2),
@@ -55,15 +57,22 @@ fun HomeScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(2) }) {
+            TextButton(onClick = onBack) { Text("← Back to the camp") }
+        }
+
+        item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(2) }) {
             PlayerBanner(player = state.player, onEdit = onEditCharacter)
         }
 
         item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(2) }) {
-            Text(
-                "Aurora-9",
-                style = MaterialTheme.typography.displaySmall,
-                modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
-            )
+            Column(Modifier.padding(top = 8.dp, bottom = 4.dp)) {
+                Text("The Camp", style = MaterialTheme.typography.displaySmall)
+                Text(
+                    "Where to find everyone",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MutedStar,
+                )
+            }
         }
 
         items(Cast.all, key = { it.id }) { member ->
@@ -145,6 +154,13 @@ private fun CastCard(member: LoveInterest, points: Int, onClick: () -> Unit) {
                 style = MaterialTheme.typography.labelSmall,
                 color = MutedStar,
             )
+            WorldAtlas.locationOf(member.id)?.let { area ->
+                Text(
+                    "📍 ${area.name}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MutedStar,
+                )
+            }
             Spacer(Modifier.height(8.dp))
             AffectionMeter(points = points, accent = accent)
             Text(

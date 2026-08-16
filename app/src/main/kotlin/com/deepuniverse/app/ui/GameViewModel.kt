@@ -18,6 +18,11 @@ import com.deepuniverse.core.game.ScenePlayback
 import com.deepuniverse.core.game.StoryEngine
 import com.deepuniverse.core.photo.AnalysisNote
 import com.deepuniverse.core.photo.AnalysisResult
+import com.deepuniverse.core.world.Direction
+import com.deepuniverse.core.world.MoveResult
+import com.deepuniverse.core.world.NpcSpawn
+import com.deepuniverse.core.world.WorldEngine
+import com.deepuniverse.core.world.WorldPosition
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -29,6 +34,11 @@ sealed interface Screen {
     data object Loading : Screen
     data object Title : Screen
     data object Creator : Screen
+
+    /** The walk-around world. This is where the player spends most of their time. */
+    data object Overworld : Screen
+
+    /** The journal: the whole cast and how close you are to each of them. */
     data object Home : Screen
     data class Route(val loveInterestId: String) : Screen
     data object Story : Screen
@@ -69,12 +79,22 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private val _playback = MutableStateFlow<ScenePlayback?>(null)
     val playback: StateFlow<ScenePlayback?> = _playback.asStateFlow()
 
+    /** A passing line from whoever you just spoke to, when they have no new scene for you. */
+    private val _overworldMessage = MutableStateFlow<String?>(null)
+    val overworldMessage: StateFlow<String?> = _overworldMessage.asStateFlow()
+
+    /** Where the player is standing. Lives in [state] so it is part of the save. */
+    val worldPosition: StateFlow<WorldPosition>
+        get() = _worldPosition
+    private val _worldPosition = MutableStateFlow(GameState().world)
+
     init {
         viewModelScope.launch {
             val loaded = saveStore.load()
             if (loaded != null) {
                 _state.value = loaded
                 _draft.value = loaded.player
+                _worldPosition.value = loaded.world
             }
             _screen.value = Screen.Title
         }
@@ -92,6 +112,11 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         _screen.value = Screen.Home
     }
 
+    fun openOverworld() {
+        _overworldMessage.value = null
+        _screen.value = Screen.Overworld
+    }
+
     fun openRoute(loveInterestId: String) {
         _screen.value = Screen.Route(loveInterestId)
     }
@@ -99,9 +124,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     /** Back handling. Returns false when there is nothing left to pop, so the Activity can finish. */
     fun goBack(): Boolean = when (_screen.value) {
         is Screen.Story -> {
-            val route = _playback.value?.scene?.loveInterestId
+            // Scenes are entered from the world, so that is where finishing one returns you.
             _playback.value = null
-            _screen.value = route?.let { Screen.Route(it) } ?: Screen.Home
+            _screen.value = Screen.Overworld
             true
         }
 
@@ -110,10 +135,15 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             true
         }
 
+        is Screen.Overworld -> {
+            _screen.value = Screen.Title
+            true
+        }
+
         is Screen.Creator -> {
             // Only leave the creator if there is already a character to go back to.
             if (_state.value.characterCreated) {
-                _screen.value = Screen.Home
+                _screen.value = Screen.Overworld
                 true
             } else {
                 _screen.value = Screen.Title
@@ -122,7 +152,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         is Screen.Home -> {
-            _screen.value = Screen.Title
+            _screen.value = if (_state.value.characterCreated) Screen.Overworld else Screen.Title
             true
         }
 
@@ -170,7 +200,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         val player = _draft.value
         _state.update { it.copy(player = player, characterCreated = true) }
         persist()
-        _screen.value = Screen.Home
+        _screen.value = Screen.Overworld
     }
 
     // ------------------------------------------------------------------ photo generation
@@ -214,6 +244,59 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     fun dismissPhotoError() = _photo.update { it.copy(error = null) }
 
+    // ------------------------------------------------------------------ overworld
+
+    /** Whoever the player is currently facing, or null. Drives the TALK button. */
+    fun facingNpc(): NpcSpawn? = WorldEngine.facingNpc(_worldPosition.value)
+
+    /**
+     * Takes one step (or turns on the spot).
+     *
+     * The save is only written when the player changes area rather than on every tile. Walking is
+     * the most frequent thing in the game, and writing a file thirty times crossing a clearing
+     * would be wasteful; an area boundary is a natural, cheap checkpoint.
+     */
+    fun move(direction: Direction) {
+        if (_screen.value != Screen.Overworld) return
+        _overworldMessage.value = null
+
+        when (val result = WorldEngine.move(_worldPosition.value, direction)) {
+            is MoveResult.Turned -> _worldPosition.value = result.position
+            is MoveResult.Walked -> _worldPosition.value = result.position
+            is MoveResult.Blocked -> Unit
+
+            is MoveResult.Travelled -> {
+                _worldPosition.value = result.position
+                _state.update { it.copy(world = result.position) }
+                persist()
+            }
+        }
+    }
+
+    /**
+     * Talks to whoever the player is facing.
+     *
+     * If they have a scene ready, it starts. If not, they say something in passing rather than
+     * nothing at all — walking up to someone should never feel like hitting a wall.
+     */
+    fun interact() {
+        val npc = facingNpc() ?: return
+        // Remember where the player was standing, so the story starts and ends in the same spot.
+        _state.update { it.copy(world = _worldPosition.value) }
+
+        val scene = storyEngine.nextScene(_state.value, npc.loveInterestId)
+        if (scene != null) {
+            startScene(scene)
+        } else {
+            _overworldMessage.value = npc.idleLine
+            persist()
+        }
+    }
+
+    fun dismissOverworldMessage() {
+        _overworldMessage.value = null
+    }
+
     // ------------------------------------------------------------------ story
 
     fun availableScenes(loveInterestId: String): List<Scene> =
@@ -242,9 +325,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Leaves the scene, keeping whatever affection was earned. */
     fun endScene() {
-        val route = _playback.value?.scene?.loveInterestId
         _playback.value = null
-        _screen.value = route?.let { Screen.Route(it) } ?: Screen.Home
+        persist()
+        _screen.value = Screen.Overworld
     }
 
     /**

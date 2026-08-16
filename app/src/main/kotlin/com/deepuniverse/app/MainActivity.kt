@@ -23,6 +23,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
@@ -33,6 +34,7 @@ import com.deepuniverse.app.ui.GameViewModel
 import com.deepuniverse.app.ui.Screen
 import com.deepuniverse.app.ui.creator.CharacterCreatorScreen
 import com.deepuniverse.app.ui.home.HomeScreen
+import com.deepuniverse.app.ui.overworld.OverworldScreen
 import com.deepuniverse.app.ui.route.RouteScreen
 import com.deepuniverse.app.ui.story.StoryScreen
 import com.deepuniverse.app.ui.theme.DeepUniverseTheme
@@ -70,6 +72,8 @@ private fun DeepUniverseApp(onFinish: () -> Unit) {
     val draft by viewModel.draft.collectAsStateWithLifecycle()
     val photo by viewModel.photo.collectAsStateWithLifecycle()
     val playback by viewModel.playback.collectAsStateWithLifecycle()
+    val worldPosition by viewModel.worldPosition.collectAsStateWithLifecycle()
+    val overworldMessage by viewModel.overworldMessage.collectAsStateWithLifecycle()
 
     BackHandler(enabled = true) {
         if (!viewModel.goBack()) onFinish()
@@ -83,8 +87,20 @@ private fun DeepUniverseApp(onFinish: () -> Unit) {
         Screen.Title -> TitleScreen(
             hasCharacter = state.characterCreated,
             playerName = state.player.name,
-            onContinue = { viewModel.openHome() },
+            onContinue = { viewModel.openOverworld() },
             onNewCharacter = { viewModel.openCreator(fromExistingCharacter = false) },
+        )
+
+        Screen.Overworld -> OverworldScreen(
+            position = worldPosition,
+            player = state.player,
+            // Recomputed whenever the player turns or steps, which is exactly when it can change.
+            facingNpc = remember(worldPosition) { viewModel.facingNpc() },
+            message = overworldMessage,
+            onMove = viewModel::move,
+            onInteract = viewModel::interact,
+            onDismissMessage = viewModel::dismissOverworldMessage,
+            onOpenJournal = viewModel::openHome,
         )
 
         Screen.Creator -> CharacterCreatorScreen(
@@ -110,6 +126,7 @@ private fun DeepUniverseApp(onFinish: () -> Unit) {
             state = state,
             onOpenRoute = viewModel::openRoute,
             onEditCharacter = { viewModel.openCreator(fromExistingCharacter = true) },
+            onBack = viewModel::openOverworld,
         )
 
         is Screen.Route -> RouteScreen(
@@ -127,7 +144,7 @@ private fun DeepUniverseApp(onFinish: () -> Unit) {
                 // The scene was cleared underneath us (process death, or a race with Back).
                 // Recovering has to happen as an effect, not during composition, or the
                 // state change would retrigger this composition before it finished.
-                LaunchedEffect(Unit) { viewModel.openHome() }
+                LaunchedEffect(Unit) { viewModel.openOverworld() }
             } else {
                 StoryScreen(
                     playback = active,

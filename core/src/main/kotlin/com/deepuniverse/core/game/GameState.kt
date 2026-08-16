@@ -1,6 +1,8 @@
 package com.deepuniverse.core.game
 
 import com.deepuniverse.core.character.CharacterAppearance
+import com.deepuniverse.core.world.WorldAtlas
+import com.deepuniverse.core.world.WorldPosition
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
@@ -15,6 +17,8 @@ import kotlinx.serialization.json.Json
 data class GameState(
     val player: CharacterAppearance = CharacterAppearance(),
     val characterCreated: Boolean = false,
+    /** Where the player is standing in the overworld, so a save drops them back on the spot. */
+    val world: WorldPosition = WorldAtlas.startPosition,
     val affection: Map<String, Int> = emptyMap(),
     val flags: Set<String> = emptySet(),
     val completedScenes: Set<String> = emptySet(),

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <!-- The save file is worth backing up. Nothing else is, and no photo is ever stored. -->
+    <include
+        domain="file"
+        path="save/" />
+</full-backup-content>

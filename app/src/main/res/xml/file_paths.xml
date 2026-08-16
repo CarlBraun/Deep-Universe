@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Where the camera writes a freshly taken character photo. It lives in cache and is
+         deleted as soon as the analysis finishes. -->
+    <cache-path
+        name="character_photos"
+        path="character_photos/" />
+</paths>

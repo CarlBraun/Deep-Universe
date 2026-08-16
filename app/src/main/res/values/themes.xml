@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      A bare, dark, action-bar-less shell. Everything visible is drawn by Compose; this exists only
+      so the window background matches the app before the first frame and the launch does not flash
+      white.
+    -->
+    <style name="Theme.DeepUniverse" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/space_black</item>
+        <item name="android:statusBarColor">@color/space_black</item>
+        <item name="android:navigationBarColor">@color/space_black</item>
+    </style>
+</resources>

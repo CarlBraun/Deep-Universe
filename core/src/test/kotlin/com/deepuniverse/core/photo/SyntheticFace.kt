@@ -37,14 +37,16 @@ object SyntheticFace {
         FacePoint.RIGHT_EYE_TOP to Vec2(30f, -5f),
         FacePoint.RIGHT_EYE_BOTTOM to Vec2(30f, 5f),
 
+        // The brow's lowest point is the underside at mid-brow, below both of its ends — so
+        // BROW_BOTTOM is unambiguously the largest y in the region, as it is on a real face.
         FacePoint.LEFT_BROW_INNER to Vec2(-15f, -17f),
         FacePoint.LEFT_BROW_OUTER to Vec2(-45f, -21f),
-        FacePoint.LEFT_BROW_TOP to Vec2(-30f, -26f),
-        FacePoint.LEFT_BROW_BOTTOM to Vec2(-30f, -17f),
+        FacePoint.LEFT_BROW_TOP to Vec2(-30f, -25f),
+        FacePoint.LEFT_BROW_BOTTOM to Vec2(-30f, -16f),
         FacePoint.RIGHT_BROW_INNER to Vec2(15f, -17f),
         FacePoint.RIGHT_BROW_OUTER to Vec2(45f, -21f),
-        FacePoint.RIGHT_BROW_TOP to Vec2(30f, -26f),
-        FacePoint.RIGHT_BROW_BOTTOM to Vec2(30f, -17f),
+        FacePoint.RIGHT_BROW_TOP to Vec2(30f, -25f),
+        FacePoint.RIGHT_BROW_BOTTOM to Vec2(30f, -16f),
 
         FacePoint.NOSE_BRIDGE_TOP to Vec2(0f, -5f),
         FacePoint.NOSE_TIP to Vec2(0f, 42f),

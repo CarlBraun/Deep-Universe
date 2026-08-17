@@ -31,14 +31,14 @@ data class ScenePlayback internal constructor(
     private val gained: Int,
     val isFinished: Boolean,
 ) {
-    private val loveInterest: LoveInterest get() = Cast.byId(scene.loveInterestId)
+    private val loveInterest: LoveInterest? get() = scene.loveInterestId?.let { Cast.byId(it) }
 
     /** The frame to display. */
     fun frame(): StoryFrame {
         if (isFinished) return StoryFrame.Ended(gained)
         pendingReply?.let {
             return StoryFrame.Line(
-                speakerName = loveInterest.name,
+                speakerName = loveInterest?.name,
                 text = TextTemplate.render(it, state.player),
                 isPlayer = false,
                 isNarration = false,
@@ -86,8 +86,9 @@ data class ScenePlayback internal constructor(
         val choice = beat.options.getOrNull(optionIndex) ?: return this
 
         var nextState = state
-        if (choice.affection != 0) {
-            nextState = nextState.withAffection(scene.loveInterestId, choice.affection)
+        val routeOwner = scene.loveInterestId
+        if (choice.affection != 0 && routeOwner != null) {
+            nextState = nextState.withAffection(routeOwner, choice.affection)
         }
         choice.setsFlag?.let { nextState = nextState.withFlag(it) }
 
@@ -115,7 +116,7 @@ data class ScenePlayback internal constructor(
     }
 
     private fun speakerName(speaker: Speaker): String? = when (speaker) {
-        Speaker.Partner -> loveInterest.name
+        Speaker.Partner -> loveInterest?.name
         Speaker.Player -> state.player.name
         Speaker.Narrator -> null
         is Speaker.Other -> speaker.name
@@ -133,6 +134,18 @@ class StoryEngine(private val scenes: List<Scene> = StoryLibrary.scenes) {
 
     fun scenesFor(loveInterestId: String): List<Scene> =
         scenes.filter { it.loveInterestId == loveInterestId }
+
+    /**
+     * A scene that fires on walking into [areaId], if one is due.
+     *
+     * This is how the world tells its own story: the ship is found by a player on their way to the
+     * beach, not by one who went looking for a menu entry.
+     */
+    fun sceneTriggeredBy(areaId: String, state: GameState): Scene? = scenes.firstOrNull {
+        it.triggersInArea == areaId &&
+            it.id !in state.completedScenes &&
+            state.flags.containsAll(it.requiresFlags)
+    }
 
     fun sceneById(id: String): Scene? = scenes.firstOrNull { it.id == id }
 

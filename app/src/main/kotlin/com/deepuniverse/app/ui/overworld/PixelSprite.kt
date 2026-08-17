@@ -6,6 +6,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import com.deepuniverse.core.character.AppearanceParam
 import com.deepuniverse.core.character.CharacterAppearance
+import com.deepuniverse.core.character.EarType
 import com.deepuniverse.core.character.HairStyle
 import com.deepuniverse.core.world.Direction
 
@@ -73,8 +74,14 @@ object PixelSprite {
         )
 
         // ---- hair behind the head and shoulders ------------------------------
+        // Stacked and tapered rather than one block: a single rectangle of hair reads as a square
+        // stuck to the character, which is exactly how it looked.
         if (longHair) {
-            px(2, 2, 8, if (bigHair) 9 else 10, hairShade)
+            val fall = if (bigHair) 9 else 11
+            px(2, 2, 8, 2, hairShade)
+            px(1, 4, 10, 3, hairShade)
+            px(2, 7, 8, fall - 5, hairShade)
+            px(3, fall + 2, 6, 1, hairShade)
         }
 
         // ---- legs -------------------------------------------------------------
@@ -92,6 +99,27 @@ object PixelSprite {
         // Arms, swinging opposite to the legs.
         px(2, 8 + maxOf(0, -stride), 1, 3, skin)
         px(9, 8 + maxOf(0, stride), 1, 3, skin)
+
+        // ---- ears, before the head so they sit behind the face ---------------
+        when (appearance.earType) {
+            EarType.ROUNDED -> Unit
+            EarType.TAPERED -> {
+                px(2, 4, 1, 2, skin)
+                px(9, 4, 1, 2, skin)
+            }
+            EarType.LONG -> {
+                px(2, 3, 1, 3, skin)
+                px(1, 2, 1, 2, skin)
+                px(9, 3, 1, 3, skin)
+                px(10, 2, 1, 2, skin)
+            }
+            EarType.FINNED -> {
+                px(2, 4, 2, 1, skin)
+                px(1, 5, 2, 1, skinShade)
+                px(8, 4, 2, 1, skin)
+                px(9, 5, 2, 1, skinShade)
+            }
+        }
 
         // ---- head -------------------------------------------------------------
         px(3, 3, 6, 5, skin)

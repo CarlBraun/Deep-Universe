@@ -5,7 +5,10 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -35,6 +38,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -77,7 +82,7 @@ fun OverworldScreen(
     reward: Reward?,
     momentsLeft: Int,
     momentsMax: Int,
-    starlight: Int,
+    stars: Int,
     boosted: Boolean,
     onMove: (Direction) -> Unit,
     onInteract: () -> Unit,
@@ -132,7 +137,7 @@ fun OverworldScreen(
                 }
                 Row {
                     TextButton(onClick = onOpenJournal) { Text("Journal") }
-                    TextButton(onClick = onOpenStore) { Text("✦ $starlight") }
+                    TextButton(onClick = onOpenStore) { Text("✦ $stars") }
                 }
             }
         }
@@ -165,8 +170,8 @@ fun OverworldScreen(
 
             // A passing remark from someone with no new scene for you, over the map so the world
             // stays visible behind it.
-            if (message != null && facingNpc != null && reward == null) {
-                val member = Cast.byId(facingNpc.loveInterestId)
+            if (message != null && reward == null) {
+                val member = facingNpc?.let { Cast.byId(it.loveInterestId) }
                 Box(
                     Modifier
                         .align(Alignment.BottomCenter)
@@ -178,12 +183,14 @@ fun OverworldScreen(
                         .padding(14.dp),
                 ) {
                     Column {
-                        Text(
-                            member.name,
-                            style = MaterialTheme.typography.titleMedium,
-                            color = Color(member.themeColor),
-                        )
-                        Spacer(Modifier.height(4.dp))
+                        member?.let {
+                            Text(
+                                it.name,
+                                style = MaterialTheme.typography.titleMedium,
+                                color = Color(it.themeColor),
+                            )
+                            Spacer(Modifier.height(4.dp))
+                        }
                         Text(message, style = MaterialTheme.typography.bodyMedium)
                     }
                 }
@@ -230,7 +237,7 @@ fun OverworldScreen(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.Bottom,
         ) {
-            DirectionPad(onStep = onMove)
+            Joystick(onStep = onMove)
             TalkButton(enabled = facingNpc != null, onClick = onInteract)
         }
     }
@@ -320,59 +327,113 @@ private fun WorldCanvas(
 }
 
 /**
- * A four-way pad that repeats while held.
+ * An analog stick: press anywhere on the pad and drag towards where you want to go.
  *
- * Hold-to-walk matters more than it sounds: without it, crossing a map means tapping thirty times,
- * and the world stops feeling like somewhere you can wander.
+ * Replaces a four-way d-pad, which was fiddly on a phone — the buttons are small, the gaps between
+ * them are dead, and changing direction means lifting your thumb and finding a different target. A
+ * stick is one continuous gesture: put a thumb down, lean, keep leaning. You can also press it like
+ * a pad, because pressing off-centre reads as leaning in that direction.
+ *
+ * Movement is still grid-based underneath, so the stick's job is only to answer "which way, and is
+ * the player still asking" — the diagonal is resolved to whichever axis dominates.
  */
 @Composable
-private fun DirectionPad(onStep: (Direction) -> Unit) {
-    var held by remember { mutableStateOf<Direction?>(null) }
+private fun Joystick(onStep: (Direction) -> Unit) {
+    val size = 148.dp
+    val knobSize = 60.dp
+    val density = LocalDensity.current
+    val radiusPx = with(density) { (size - knobSize).toPx() / 2f }
+    // Below this the touch is too central to mean a direction, which stops a resting thumb from
+    // walking the character into a wall.
+    val deadZone = radiusPx * 0.28f
 
-    LaunchedEffect(held) {
-        val direction = held ?: return@LaunchedEffect
+    var knob by remember { mutableStateOf(Offset.Zero) }
+    var heading by remember { mutableStateOf<Direction?>(null) }
+
+    LaunchedEffect(heading) {
+        val direction = heading ?: return@LaunchedEffect
         onStep(direction)
-        // A brief pause before repeating, so a single tap is a single step.
-        delay(260)
+        // A short pause before repeating, so a nudge is a single step.
+        delay(240)
         while (true) {
-            onStep(direction)
+            onStep(heading ?: return@LaunchedEffect)
             delay(STEP_MILLIS.toLong())
         }
     }
 
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        PadButton("▲", Direction.UP) { held = it }
-        Row {
-            PadButton("◀", Direction.LEFT) { held = it }
-            Spacer(Modifier.size(56.dp))
-            PadButton("▶", Direction.RIGHT) { held = it }
-        }
-        PadButton("▼", Direction.DOWN) { held = it }
-    }
-}
-
-@Composable
-private fun PadButton(glyph: String, direction: Direction, onHeldChange: (Direction?) -> Unit) {
     Box(
         Modifier
-            .size(56.dp)
-            .padding(2.dp)
-            .clip(RoundedCornerShape(10.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-            .pointerInput(direction) {
-                detectTapGestures(
-                    onPress = {
-                        onHeldChange(direction)
-                        // Suspends until the finger lifts or the gesture is cancelled, which is
-                        // what lets the repeat loop above run for exactly as long as it is held.
-                        tryAwaitRelease()
-                        onHeldChange(null)
-                    },
-                )
+            .size(size)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f))
+            .pointerInput(Unit) {
+                val centre = Offset(this.size.width / 2f, this.size.height / 2f)
+                awaitEachGesture {
+                    val down = awaitFirstDown()
+                    fun applyTouch(position: Offset) {
+                        val from = position - centre
+                        val length = kotlin.math.hypot(from.x, from.y)
+                        knob = if (length > radiusPx && length > 0f) {
+                            from * (radiusPx / length)
+                        } else {
+                            from
+                        }
+                        heading = when {
+                            length < deadZone -> null
+                            kotlin.math.abs(from.x) > kotlin.math.abs(from.y) ->
+                                if (from.x > 0) Direction.RIGHT else Direction.LEFT
+                            else -> if (from.y > 0) Direction.DOWN else Direction.UP
+                        }
+                    }
+
+                    applyTouch(down.position)
+                    down.consume()
+
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                        if (!change.pressed) break
+                        applyTouch(change.position)
+                        change.consume()
+                    }
+                    knob = Offset.Zero
+                    heading = null
+                }
             },
         contentAlignment = Alignment.Center,
     ) {
-        Text(glyph, style = MaterialTheme.typography.titleMedium, color = DriftGlow)
+        // A faint cross, so the stick still reads as directional at a glance.
+        Text(
+            "＋",
+            style = MaterialTheme.typography.displaySmall,
+            color = MutedStar.copy(alpha = 0.25f),
+        )
+        Box(
+            Modifier
+                .offset { IntOffset(knob.x.toInt(), knob.y.toInt()) }
+                .size(knobSize)
+                .clip(CircleShape)
+                .background(
+                    if (heading != null) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.surface
+                    },
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                when (heading) {
+                    Direction.UP -> "▲"
+                    Direction.DOWN -> "▼"
+                    Direction.LEFT -> "◀"
+                    Direction.RIGHT -> "▶"
+                    null -> "●"
+                },
+                style = MaterialTheme.typography.titleMedium,
+                color = if (heading != null) Color.White else DriftGlow.copy(alpha = 0.8f),
+            )
+        }
     }
 }
 

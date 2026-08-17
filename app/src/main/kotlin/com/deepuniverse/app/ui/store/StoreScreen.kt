@@ -68,7 +68,7 @@ fun StoreScreen(
                 TextButton(onClick = onBack) { Text("← Back") }
                 Spacer(Modifier.weight(1f))
                 Text(
-                    "${state.wallet.starlight} ${StoreCatalog.CURRENCY}",
+                    "${state.wallet.stars} ${StoreCatalog.CURRENCY}",
                     style = MaterialTheme.typography.titleMedium,
                     color = DriftGlow,
                 )
@@ -240,13 +240,13 @@ private fun TierCard(tier: SupportTier, enabled: Boolean, onBuy: () -> Unit) {
             Spacer(Modifier.height(6.dp))
             Row {
                 Text(
-                    "${tier.starlight} ${StoreCatalog.CURRENCY}",
+                    "${tier.stars} ${StoreCatalog.CURRENCY}",
                     style = MaterialTheme.typography.bodyMedium,
                     color = DriftGlow,
                 )
-                if (tier.bonusStarlight > 0) {
+                if (tier.bonusStars > 0) {
                     Text(
-                        "  +${tier.bonusStarlight} bonus",
+                        "  +${tier.bonusStars} bonus",
                         style = MaterialTheme.typography.labelSmall,
                         color = Color(0xFF8FD9A8),
                     )

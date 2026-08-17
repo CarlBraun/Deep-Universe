@@ -51,6 +51,15 @@ data class Warp(
     val toX: Int,
     val toY: Int,
     val facingOnArrival: Direction,
+    /**
+     * Flag the player must hold before this exit works.
+     *
+     * Used for the ship's launch console: the hull is walkable from the moment you find it, but it
+     * only goes anywhere once you have decided to fly.
+     */
+    val requiresFlag: String? = null,
+    /** Shown when the exit is closed, so a locked door explains itself. */
+    val lockedMessage: String? = null,
 )
 
 /**
@@ -81,6 +90,8 @@ data class Area(
     val npcs: List<NpcSpawn> = emptyList(),
     /** Indoor areas are lit and framed differently from outdoor ones. */
     val indoors: Boolean = false,
+    /** Airless. The player is drawn in a suit here, and the sky is not Earth's. */
+    val requiresSpacesuit: Boolean = false,
 ) {
     fun warpAt(x: Int, y: Int): Warp? = warps.firstOrNull { it.x == x && it.y == y }
 

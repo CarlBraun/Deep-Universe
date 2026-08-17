@@ -17,6 +17,21 @@ import kotlin.test.fail
 class WorldAtlasTest {
 
     @Test
+    fun `Uto is unreachable until the player decides to fly`() {
+        // The whole twist depends on this: the ship is findable from the start, and goes nowhere.
+        val beforeFlying = WorldEngine.reachableAreas(WorldAtlas.startPosition)
+        assertTrue(WorldAtlas.SHIP_CABIN in beforeFlying, "The ship itself should be findable")
+        assertTrue(
+            WorldAtlas.UTO_LANDING !in beforeFlying,
+            "Uto must not be walkable to before the launch is agreed to",
+        )
+        assertTrue(
+            WorldAtlas.UTO_LANDING in WorldEngine.reachableAreas(WorldAtlas.startPosition, allFlags),
+            "Once the player has chosen to fly, Uto must open up",
+        )
+    }
+
+    @Test
     fun `every area has a unique id and a non-empty map`() {
         val ids = WorldAtlas.areas.map { it.id }
         assertEquals(ids.size, ids.toSet().size, "Duplicate area ids: $ids")
@@ -109,9 +124,12 @@ class WorldAtlasTest {
 
     // ---------------------------------------------------------------- reachability
 
+    /** Everything the player has decided by the time the world is fully open to them. */
+    private val allFlags = setOf(WorldAtlas.FLAG_LAUNCH_READY)
+
     @Test
     fun `every area can be walked to from where the player starts`() {
-        val reachable = WorldEngine.reachableAreas(WorldAtlas.startPosition)
+        val reachable = WorldEngine.reachableAreas(WorldAtlas.startPosition, allFlags)
         for (area in WorldAtlas.areas) {
             assertTrue(
                 area.id in reachable,
@@ -125,7 +143,7 @@ class WorldAtlasTest {
         for (area in WorldAtlas.areas) {
             for (npc in area.npcs) {
                 assertTrue(
-                    WorldEngine.isNpcApproachable(area.id, npc, WorldAtlas.startPosition),
+                    WorldEngine.isNpcApproachable(area.id, npc, WorldAtlas.startPosition, allFlags),
                     "${npc.loveInterestId} in ${area.name} cannot be reached — there is no tile " +
                         "next to them the player can stand on",
                 )

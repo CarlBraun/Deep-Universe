@@ -24,6 +24,13 @@ object WorldAtlas {
     const val FIELD_LAB = "field_lab"
     const val PINE_PATH = "pine_path"
     const val THE_BEACH = "the_beach"
+    const val THE_HOLLOW = "the_hollow"
+    const val SHIP_CABIN = "ship_cabin"
+    const val UTO_LANDING = "uto_landing"
+    const val UTO_KITCHEN = "uto_kitchen"
+
+    /** Set once the player decides to fly. The launch console does nothing until then. */
+    const val FLAG_LAUNCH_READY = "ship_launch_ready"
 
     /** A new player wakes up in their own bunk — the world opens from a door they choose to leave. */
     val startPosition = WorldPosition(YOUR_CABIN, x = 4, y = 4, facing = Direction.DOWN)
@@ -200,7 +207,7 @@ object WorldAtlas {
                 "T...--.........T",
                 "T..--..o.......T",
                 "T..--..........T",
-                "T..--...,,,....T",
+                "T..--...,,,....-",
                 "T..---.........T",
                 "T....--........T",
                 "T.....--.......T",
@@ -212,6 +219,8 @@ object WorldAtlas {
             Warp(8, 0, CAMP_CLEARING, 8, 10, Direction.UP),
             Warp(6, 11, THE_BEACH, 6, 1, Direction.DOWN),
             Warp(7, 11, THE_BEACH, 7, 1, Direction.DOWN),
+            // A gap in the pines that nobody had noticed before.
+            Warp(15, 7, THE_HOLLOW, 1, 6, Direction.RIGHT),
         ),
         npcs = listOf(
             NpcSpawn(
@@ -269,6 +278,164 @@ object WorldAtlas {
         ),
     )
 
+    /**
+     * A clearing off the pine path with something buried in the bracken.
+     *
+     * Deliberately placed on the walk everyone already makes to the beach, so the discovery happens
+     * to a player going about their business rather than to one hunting for secrets.
+     */
+    private val theHollow = Area(
+        id = THE_HOLLOW,
+        name = "The Hollow",
+        subtitle = "Bracken, and something under it that is not a rock",
+        map = TileMap(
+            listOf(
+                "TTTTTTTTTTTTTTTT",
+                "T,,,,,,,,,,,,,,T",
+                "T,,,,,,,,,,,,,,T",
+                "T,,,,####,,,,,,T",
+                "T,,,,#__#,,,,,,T",
+                "T,,,,#_D#,,,,,,T",
+                "-,,,,,,,,,,,,,,T",
+                "T,,,,,,,,,,,,,,T",
+                "T,,,,o,,,,,o,,,T",
+                "T,,,,,,,,,,,,,,T",
+                "T,,,,,,,,,,,,,,T",
+                "TTTTTTTTTTTTTTTT",
+            ),
+        ),
+        warps = listOf(
+            Warp(0, 6, PINE_PATH, 14, 7, Direction.LEFT),
+            Warp(7, 5, SHIP_CABIN, 5, 6, Direction.UP),
+        ),
+    )
+
+    /** Inside the ship. The console goes nowhere until the player decides it should. */
+    private val shipCabin = Area(
+        id = SHIP_CABIN,
+        name = "The Cabin",
+        subtitle = "Someone left in a hurry, a long time ago",
+        indoors = true,
+        map = TileMap(
+            listOf(
+                "############",
+                "#____====__#",
+                "#__________#",
+                "#_x______x_#",
+                "#__________#",
+                "#____DD____#",
+                "#__________#",
+                "#####--#####",
+            ),
+        ),
+        warps = listOf(
+            Warp(5, 7, THE_HOLLOW, 6, 6, Direction.DOWN),
+            Warp(6, 7, THE_HOLLOW, 6, 6, Direction.DOWN),
+            Warp(
+                x = 5,
+                y = 5,
+                toAreaId = UTO_LANDING,
+                toX = 7,
+                toY = 8,
+                facingOnArrival = Direction.UP,
+                requiresFlag = FLAG_LAUNCH_READY,
+                lockedMessage = "a console you have not decided about yet",
+            ),
+            Warp(
+                x = 6,
+                y = 5,
+                toAreaId = UTO_LANDING,
+                toX = 8,
+                toY = 8,
+                facingOnArrival = Direction.UP,
+                requiresFlag = FLAG_LAUNCH_READY,
+                lockedMessage = "a console you have not decided about yet",
+            ),
+        ),
+    )
+
+    private val utoLanding = Area(
+        id = UTO_LANDING,
+        name = "Uto — The Glass Flats",
+        subtitle = "Violet sky, two moons, and air you cannot breathe",
+        requiresSpacesuit = true,
+        map = TileMap(
+            listOf(
+                "oooooooooooooooo",
+                "o..............o",
+                "o...*......*...o",
+                "o..............o",
+                "o....o....o....o",
+                "o..............o",
+                "o..............o",
+                "o...*......*...o",
+                "o..............o",
+                "o......--......o",
+                "o..............o",
+                "oooooo----oooooo",
+            ),
+        ),
+        warps = listOf(
+            Warp(7, 9, SHIP_CABIN, 5, 6, Direction.DOWN),
+            Warp(8, 9, SHIP_CABIN, 6, 6, Direction.DOWN),
+            Warp(6, 11, UTO_KITCHEN, 5, 6, Direction.DOWN),
+            Warp(7, 11, UTO_KITCHEN, 5, 6, Direction.DOWN),
+            Warp(8, 11, UTO_KITCHEN, 6, 6, Direction.DOWN),
+            Warp(9, 11, UTO_KITCHEN, 6, 6, Direction.DOWN),
+        ),
+        npcs = listOf(
+            NpcSpawn(
+                loveInterestId = "vess",
+                x = 4,
+                y = 5,
+                facing = Direction.RIGHT,
+                activity = "Reading the sky the way you read the Drift",
+                idleLine = "You hear it from your side too. I wondered who would.",
+            ),
+            NpcSpawn(
+                loveInterestId = "orrin",
+                x = 11,
+                y = 6,
+                facing = Direction.LEFT,
+                activity = "Circling your ship, appraising it",
+                idleLine = "Nice hull. Very salvageable. That was a joke. Mostly.",
+            ),
+        ),
+    )
+
+    private val utoKitchen = Area(
+        id = UTO_KITCHEN,
+        name = "The Long Kitchen",
+        subtitle = "Pressurised, warm, and smelling of something unplaceable",
+        indoors = true,
+        map = TileMap(
+            listOf(
+                "############",
+                "#__________#",
+                "#_========_#",
+                "#_hhhhhhhh_#",
+                "#__________#",
+                "#_x______x_#",
+                "#__________#",
+                "#####--#####",
+            ),
+        ),
+        warps = listOf(
+            Warp(5, 7, UTO_LANDING, 7, 10, Direction.UP),
+            Warp(6, 7, UTO_LANDING, 8, 10, Direction.UP),
+        ),
+        npcs = listOf(
+            NpcSpawn(
+                loveInterestId = "tuli",
+                x = 5,
+                y = 4,
+                facing = Direction.UP,
+                activity = "Cooking for whoever walks in, including you",
+                idleLine = "Sit. Eat. We can work out what you are afterwards.",
+            ),
+        ),
+    )
+
     val areas: List<Area> = listOf(
         yourCabin,
         cabinRow,
@@ -277,6 +444,10 @@ object WorldAtlas {
         greatLodge,
         pinePath,
         theBeach,
+        theHollow,
+        shipCabin,
+        utoLanding,
+        utoKitchen,
     )
 
     private val byId = areas.associateBy { it.id }

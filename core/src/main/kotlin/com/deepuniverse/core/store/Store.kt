@@ -22,12 +22,12 @@ data class SupportTier(
     val blurb: String,
     /** Display price. The real price always comes from the platform, never from this string. */
     val fallbackPriceLabel: String,
-    val starlight: Int,
+    val stars: Int,
     /** Extra thrown in on top, shown as a bonus. */
-    val bonusStarlight: Int = 0,
+    val bonusStars: Int = 0,
     val highlighted: Boolean = false,
 ) {
-    val totalStarlight: Int get() = starlight + bonusStarlight
+    val totalStars: Int get() = stars + bonusStars
 }
 
 /** Something bought with Starlight rather than money. */
@@ -42,7 +42,7 @@ data class StoreOffer(
 object StoreCatalog {
 
     /** The soft currency's name, used everywhere the player sees a number. */
-    const val CURRENCY = "Starlight"
+    const val CURRENCY = "Stars"
 
     val tiers: List<SupportTier> = listOf(
         SupportTier(
@@ -50,32 +50,32 @@ object StoreCatalog {
             title = "A coffee",
             blurb = "Keeps the lights on at Aurora-9.",
             fallbackPriceLabel = "$1.99",
-            starlight = 100,
+            stars = 100,
         ),
         SupportTier(
             id = "support_medium",
             title = "A good evening",
             blurb = "The usual way people support the game.",
             fallbackPriceLabel = "$4.99",
-            starlight = 280,
-            bonusStarlight = 30,
+            stars = 280,
+            bonusStars = 30,
             highlighted = true,
         ),
         SupportTier(
             id = "support_large",
             title = "A whole weekend",
-            blurb = "Enough Starlight to stop thinking about Starlight.",
+            blurb = "Enough Stars to stop thinking about Stars.",
             fallbackPriceLabel = "$9.99",
-            starlight = 600,
-            bonusStarlight = 120,
+            stars = 600,
+            bonusStars = 120,
         ),
         SupportTier(
             id = "support_patron",
             title = "Patron",
             blurb = "For people who want the thing to exist. Thank you, genuinely.",
             fallbackPriceLabel = "$19.99",
-            starlight = 1300,
-            bonusStarlight = 400,
+            stars = 1300,
+            bonusStars = 400,
         ),
     )
 
@@ -108,7 +108,7 @@ object StoreCatalog {
 /** The player's Starlight and their support history. */
 @Serializable
 data class Wallet(
-    val starlight: Int = 0,
+    val stars: Int = 0,
     /** Purchases made, ever. Drives the thank-you badge and the spend guard. */
     val purchaseCount: Int = 0,
     /** Real money spent this calendar month, in whole currency units, for the spend guard. */
@@ -117,12 +117,12 @@ data class Wallet(
     /** A cap the player set on themselves. Null means none. */
     val selfImposedMonthlyLimit: Int? = null,
 ) {
-    fun canAfford(cost: Int): Boolean = starlight >= cost
+    fun canAfford(cost: Int): Boolean = stars >= cost
 
     fun spend(cost: Int): Wallet =
-        if (canAfford(cost)) copy(starlight = starlight - cost) else this
+        if (canAfford(cost)) copy(stars = stars - cost) else this
 
-    fun grant(amount: Int): Wallet = copy(starlight = starlight + amount)
+    fun grant(amount: Int): Wallet = copy(stars = stars + amount)
 
     /**
      * Records a completed purchase.
@@ -133,7 +133,7 @@ data class Wallet(
     fun recordPurchase(tier: SupportTier, priceUnits: Int, monthKey: String): Wallet {
         val sameMonth = this.monthKey == monthKey
         return copy(
-            starlight = starlight + tier.totalStarlight,
+            stars = stars + tier.totalStars,
             purchaseCount = purchaseCount + 1,
             spentThisMonth = if (sameMonth) spentThisMonth + priceUnits else priceUnits,
             monthKey = monthKey,

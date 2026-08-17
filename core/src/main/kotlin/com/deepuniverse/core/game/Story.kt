@@ -44,11 +44,19 @@ sealed interface Beat {
  */
 data class Scene(
     val id: String,
-    val loveInterestId: String,
+    /**
+     * Whose route this belongs to, or null for a scene about the world rather than a person.
+     *
+     * The ship in the bracken belongs to nobody, so forcing every scene to name a character would
+     * have meant inventing one to own it.
+     */
+    val loveInterestId: String?,
     val title: String,
     val summary: String,
     val requiredLevel: AffectionLevel = AffectionLevel.STRANGER,
     val requiresFlags: Set<String> = emptySet(),
+    /** Fires the first time the player walks into this area, rather than on a route. */
+    val triggersInArea: String? = null,
     val beats: List<Beat>,
 ) {
     init {

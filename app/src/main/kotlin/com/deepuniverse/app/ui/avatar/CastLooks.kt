@@ -2,6 +2,7 @@ package com.deepuniverse.app.ui.avatar
 
 import com.deepuniverse.core.character.AppearanceParam
 import com.deepuniverse.core.character.CharacterAppearance
+import com.deepuniverse.core.character.EarType
 import com.deepuniverse.core.character.HairStyle
 import com.deepuniverse.core.character.Palettes
 import com.deepuniverse.core.character.PresentationStyle
@@ -125,6 +126,63 @@ object CastLooks {
                 AppearanceParam.CHEEKBONES to 0.55f,
                 AppearanceParam.FRECKLES to 0.2f,
                 AppearanceParam.SKIN_GLOW to 0.65f,
+            ),
+        ),
+        Cast.vess.id to CharacterAppearance(
+            name = Cast.vess.name,
+            pronouns = Pronouns.SHE,
+            presentation = PresentationStyle.FEMININE,
+            hairStyle = HairStyle.LONG_STRAIGHT,
+            skinColor = Palettes.skin("verdant").argb,
+            hairColor = Palettes.hair("mint").argb,
+            eyeColor = Palettes.eye("gold").argb,
+            earType = EarType.LONG,
+            params = mapOf(
+                AppearanceParam.EYE_SIZE to 0.72f,
+                AppearanceParam.EYE_TILT to 0.66f,
+                AppearanceParam.EYE_OPENNESS to 0.42f,
+                AppearanceParam.FACE_LENGTH to 0.62f,
+                AppearanceParam.CHEEKBONES to 0.82f,
+                AppearanceParam.JAW_SHARPNESS to 0.6f,
+                AppearanceParam.LIP_CURVE to 0.4f,
+                AppearanceParam.SKIN_GLOW to 0.8f,
+            ),
+        ),
+        Cast.orrin.id to CharacterAppearance(
+            name = Cast.orrin.name,
+            pronouns = Pronouns.HE,
+            presentation = PresentationStyle.MASCULINE,
+            hairStyle = HairStyle.UNDERCUT,
+            skinColor = Palettes.skin("amethyst").argb,
+            hairColor = Palettes.hair("jet").argb,
+            eyeColor = Palettes.eye("ice").argb,
+            earType = EarType.FINNED,
+            params = mapOf(
+                AppearanceParam.JAW_WIDTH to 0.76f,
+                AppearanceParam.JAW_SHARPNESS to 0.82f,
+                AppearanceParam.BROW_THICKNESS to 0.7f,
+                AppearanceParam.EYE_OPENNESS to 0.34f,
+                AppearanceParam.SHOULDER_WIDTH to 0.8f,
+                AppearanceParam.BUILD to 0.72f,
+                AppearanceParam.NOSE_BRIDGE to 0.72f,
+            ),
+        ),
+        Cast.tuli.id to CharacterAppearance(
+            name = Cast.tuli.name,
+            pronouns = Pronouns.THEY,
+            presentation = PresentationStyle.ANDROGYNOUS,
+            hairStyle = HairStyle.CURLY_CLOUD,
+            skinColor = Palettes.skin("tidal").argb,
+            hairColor = Palettes.hair("ash").argb,
+            eyeColor = Palettes.eye("amber").argb,
+            earType = EarType.TAPERED,
+            params = mapOf(
+                AppearanceParam.EYE_SIZE to 0.68f,
+                AppearanceParam.LIP_FULLNESS to 0.72f,
+                AppearanceParam.LIP_CURVE to 0.78f,
+                AppearanceParam.CHEEKBONES to 0.5f,
+                AppearanceParam.BLUSH to 0.4f,
+                AppearanceParam.SKIN_GLOW to 0.7f,
             ),
         ),
     )

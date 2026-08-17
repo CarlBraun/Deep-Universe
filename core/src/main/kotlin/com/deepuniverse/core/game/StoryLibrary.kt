@@ -511,6 +511,204 @@ object StoryLibrary {
         ),
     )
 
+    // ------------------------------------------------------- the thing in the bracken
+
+    private val theNoise = Scene(
+        id = "world_01_noise",
+        loveInterestId = null,
+        title = "Noise in the Bushes",
+        summary = "Something in the hollow, and it is not an animal.",
+        triggersInArea = "the_hollow",
+        beats = listOf(
+            Beat.Narrate("You are most of the way to the beach when you hear it."),
+            Beat.Narrate(
+                "Not an animal. Animals stop when you stop. This keeps going — a low, patient " +
+                    "ticking from somewhere inside the bracken, like something cooling down.",
+            ),
+            Beat.Say(Speaker.Player, "...Hello?"),
+            Beat.Narrate("Nothing answers. The ticking does not change."),
+            Beat.Ask(
+                prompt = "The bracken is chest-high and completely still.",
+                options = listOf(
+                    Choice(
+                        text = "Push through it.",
+                        reply = "Branches, then nettles, then — your hand meets something flat, " +
+                            "and warm, and not stone.",
+                    ),
+                    Choice(
+                        text = "Walk around. Slowly.",
+                        reply = "You circle it twice before you understand what you are circling.",
+                    ),
+                ),
+            ),
+            Beat.Narrate(
+                "It is a hull. Small, single-berth, half-swallowed by eleven summers of growth. " +
+                    "The door stands open. Whoever left it did not close it, and did not come back.",
+            ),
+            Beat.Narrate("Inside, something is still ticking."),
+        ),
+    )
+
+    private val theConsole = Scene(
+        id = "world_02_console",
+        loveInterestId = null,
+        title = "The Console",
+        summary = "It is asking you a question, and it will wait.",
+        triggersInArea = "ship_cabin",
+        beats = listOf(
+            Beat.Narrate(
+                "The cabin smells of dust and cold metal. One seat. One console, lit, patient, " +
+                    "cycling the same prompt it has been cycling since before you were born.",
+            ),
+            Beat.Narrate(
+                "You cannot read the script. You do not need to. There is a single control under " +
+                    "it, worn smooth on one side by a thumb that was not shaped like yours.",
+            ),
+            Beat.Say(Speaker.Player, "Somebody left in a hurry."),
+            Beat.Narrate(
+                "The nine-second pattern is here too. Louder. Coming from the console, or through " +
+                    "it, from somewhere a very long way off.",
+            ),
+            Beat.Ask(
+                prompt = "Whatever has been calling you, it is on the other end of this.",
+                options = listOf(
+                    Choice(
+                        text = "Sit down. Take the ship up.",
+                        reply = "The door seals. The bracken drops away. You do not scream, which " +
+                            "you will be proud of later.",
+                        setsFlag = "ship_launch_ready",
+                    ),
+                    Choice(
+                        text = "Not today. Learn it first.",
+                        reply = "You back out into the light. The ticking follows you to the " +
+                            "treeline, and stops. It will be here tomorrow.",
+                    ),
+                ),
+            ),
+            Beat.Narrate("Either way, the camp is going to notice you have been somewhere."),
+        ),
+    )
+
+    // ------------------------------------------------------------------ Uto
+
+    private val vessIntro = Scene(
+        id = "vess_01_tide",
+        loveInterestId = "vess",
+        title = "The Tide-Reader",
+        summary = "Someone on the flats has been expecting a visitor for a very long time.",
+        beats = listOf(
+            Beat.Narrate(
+                "The sky over Uto is violet and moving. Your suit tells you the air outside would " +
+                    "kill you in ninety seconds. It does not mention how beautiful it is.",
+            ),
+            Beat.Say(Speaker.Partner, "You came in on the old ship. The one that never went home."),
+            Beat.Say(Speaker.Player, "You knew it?"),
+            Beat.Say(
+                Speaker.Partner,
+                "I knew who flew it. That was a while ago. Two hundred tides, give or take.",
+            ),
+            Beat.Ask(
+                prompt = "She is green as deep moss, long-eared, and entirely unsurprised by you.",
+                options = listOf(
+                    Choice(
+                        text = "\"You've been waiting for someone.\"",
+                        affection = 4,
+                        reply = "\"I have been *reading*. Waiting is what it looks like from outside.\"",
+                        setsFlag = "vess_understood",
+                    ),
+                    Choice(
+                        text = "\"Ninety seconds is not long to make a first impression.\"",
+                        affection = 3,
+                        reply = "\"Then stand closer and stop wasting them.\"",
+                    ),
+                ),
+            ),
+            Beat.Say(
+                Speaker.Partner,
+                "The pattern you hear — nine of your seconds — we hear it from this side. It has " +
+                    "been getting louder for eleven of your days.",
+            ),
+            Beat.Say(Speaker.Player, "You count in my days?"),
+            Beat.Say(Speaker.Partner, "I started to. Recently. Take your helmet seal seriously, {name}."),
+        ),
+    )
+
+    private val orrinIntro = Scene(
+        id = "orrin_01_salvage",
+        loveInterestId = "orrin",
+        title = "Ship-Breaker",
+        summary = "Somebody is already appraising your ride.",
+        beats = listOf(
+            Beat.Narrate(
+                "He has a hand flat against your hull and an expression like a man reading a letter " +
+                    "he has read before.",
+            ),
+            Beat.Say(Speaker.Partner, "Where did you find her."),
+            Beat.Say(Speaker.Player, "In some bushes. On a planet you've never heard of."),
+            Beat.Say(Speaker.Partner, "I have heard of it. That is the problem."),
+            Beat.Ask(
+                prompt = "Amethyst-skinned, finned at the ear, and not remotely joking.",
+                options = listOf(
+                    Choice(
+                        text = "\"Whose ship was this?\"",
+                        affection = 4,
+                        reply = "\"Someone who owed me money and an apology. In that order.\"",
+                        setsFlag = "orrin_asked_owner",
+                    ),
+                    Choice(
+                        text = "\"You're not taking it apart.\"",
+                        affection = 3,
+                        reply = "A short laugh. \"Not today. Look at you, defending a wreck.\"",
+                    ),
+                ),
+            ),
+            Beat.Say(
+                Speaker.Partner,
+                "Everything that falls out of the Drift lands on these flats eventually. I take it " +
+                    "apart and I find out what it was running from.",
+            ),
+            Beat.Say(Speaker.Partner, "You are the first thing that arrived pointed the right way."),
+        ),
+    )
+
+    private val tuliIntro = Scene(
+        id = "tuli_01_kitchen",
+        loveInterestId = "tuli",
+        title = "The Long Kitchen",
+        summary = "Pressurised, warm, and the first place you can take the helmet off.",
+        beats = listOf(
+            Beat.Narrate(
+                "The seal cycles. Your helmet comes off to warm air and a smell you have no word for " +
+                    "and immediately want more of.",
+            ),
+            Beat.Say(Speaker.Partner, "Sit. You've been breathing bottled air for an hour."),
+            Beat.Say(Speaker.Player, "You're not going to ask what I am?"),
+            Beat.Say(Speaker.Partner, "You're hungry. That's the part I can do something about."),
+            Beat.Ask(
+                prompt = "Tidal-blue, tapered-eared, already putting a bowl in front of you.",
+                options = listOf(
+                    Choice(
+                        text = "Eat it. All of it.",
+                        affection = 5,
+                        reply = "\"...Well. That's the nicest thing anyone's done here in a month.\"",
+                        setsFlag = "tuli_ate",
+                    ),
+                    Choice(
+                        text = "\"What is it?\"",
+                        affection = 2,
+                        reply = "\"Food. Next question.\"",
+                    ),
+                ),
+            ),
+            Beat.Say(
+                Speaker.Partner,
+                "Four species through here this month. I keep count of which ones come back.",
+            ),
+            Beat.Say(Speaker.Player, "And which do?"),
+            Beat.Say(Speaker.Partner, "The ones that finish the bowl. Come back, {name}."),
+        ),
+    )
+
     val scenes: List<Scene> = listOf(
         lyraIntro,
         lyraClose,
@@ -521,5 +719,10 @@ object StoryLibrary {
         kaitoAcquainted,
         sevIntro,
         idrisIntro,
+        theNoise,
+        theConsole,
+        vessIntro,
+        orrinIntro,
+        tuliIntro,
     )
 }

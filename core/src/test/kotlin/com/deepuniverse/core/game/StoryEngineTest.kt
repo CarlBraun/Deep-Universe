@@ -249,7 +249,8 @@ class StoryEngineTest {
     fun `every shipped scene belongs to a real love interest and is playable`() {
         val engine = StoryEngine()
         for (scene in StoryLibrary.scenes) {
-            Cast.byId(scene.loveInterestId) // throws if the id is a typo
+            // World scenes belong to nobody; character scenes must name a real one.
+            scene.loveInterestId?.let { Cast.byId(it) }
             assertTrue(scene.beats.isNotEmpty(), "${scene.id} has no beats")
             for (beat in scene.beats) {
                 if (beat is Beat.Ask) {
@@ -264,6 +265,52 @@ class StoryEngineTest {
             }
             assertTrue(playback.isFinished, "${scene.id} did not finish")
         }
+    }
+
+    @Test
+    fun `world scenes fire on entering their area, once`() {
+        val engine = StoryEngine()
+        val found = engine.sceneTriggeredBy("the_hollow", newGame)
+            ?: fail("Walking into the hollow should find the ship")
+        assertEquals(null, found.loveInterestId, "The ship belongs to no character")
+
+        val afterwards = newGame.withCompletedScene(found.id)
+        assertEquals(
+            null,
+            engine.sceneTriggeredBy("the_hollow", afterwards),
+            "A world scene must not fire again every time you walk back through",
+        )
+    }
+
+    @Test
+    fun `choosing to fly is what opens the way to Uto`() {
+        val engine = StoryEngine()
+        val scene = engine.sceneById("world_02_console") ?: fail("Missing the console scene")
+        var playback = engine.start(newGame, scene)
+        var guard = 0
+        while (!playback.isFinished && guard++ < 200) {
+            playback = if (playback.canAdvance) playback.advance() else playback.choose(0)
+        }
+        assertTrue(
+            playback.state.flags.contains("ship_launch_ready"),
+            "Taking the ship up must set the flag the launch console is gated on",
+        )
+    }
+
+    @Test
+    fun `declining to fly leaves the ship where it is`() {
+        val engine = StoryEngine()
+        val scene = engine.sceneById("world_02_console") ?: fail("Missing the console scene")
+        var playback = engine.start(newGame, scene)
+        var guard = 0
+        // Always take the last option, which is the one that walks away.
+        while (!playback.isFinished && guard++ < 200) {
+            playback = if (playback.canAdvance) playback.advance() else playback.choose(1)
+        }
+        assertTrue(
+            !playback.state.flags.contains("ship_launch_ready"),
+            "Declining must not open the route to Uto",
+        )
     }
 
     @Test

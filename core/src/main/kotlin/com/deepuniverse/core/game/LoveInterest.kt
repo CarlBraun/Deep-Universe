@@ -22,6 +22,8 @@ data class LoveInterest(
     val bio: String,
     /** Accent colour for this character's cards, dialogue box and route UI. */
     val themeColor: Int,
+    /** False for the people of Uto, who are drawn with their own ears and colouring. */
+    val human: Boolean = true,
 )
 
 /** Bond tiers, unlocked by accumulating affection. Scene gating reads these. */
@@ -122,7 +124,55 @@ object Cast {
         themeColor = argb(0xE0, 0x9A, 0x4F),
     )
 
-    val all: List<LoveInterest> = listOf(lyra, nadia, rook, kaito, sev, idris)
+    // ---- Uto -------------------------------------------------------------
+    // Met only after finding the ship, so they are absent from a new player's journal.
+
+    val vess = LoveInterest(
+        id = "vess",
+        name = "Vess Ilorun",
+        role = "Tide-Reader of Uto",
+        pronouns = Pronouns.SHE,
+        presentation = PresentationStyle.FEMININE,
+        tagline = "Has read the sky here for two hundred years. You are new weather.",
+        bio = "Verdant-skinned, long-eared, and unhurried in the way of someone who measures time " +
+            "in tides rather than days. Vess reads the Drift from the other side and has been " +
+            "waiting a long while for someone to arrive who could hear it too.",
+        themeColor = argb(0x6F, 0xC5, 0x9A),
+        human = false,
+    )
+
+    val orrin = LoveInterest(
+        id = "orrin",
+        name = "Orrin Sath",
+        role = "Ship-Breaker",
+        pronouns = Pronouns.HE,
+        presentation = PresentationStyle.MASCULINE,
+        tagline = "Takes apart everything that lands. Yours included, if you leave it out.",
+        bio = "Amethyst-skinned and finned at the ear, Orrin salvages the wrecks that fall out of " +
+            "the Drift onto Uto's flats. He recognised your ship on sight, which is the first " +
+            "thing that should worry you and the second thing that should interest you.",
+        themeColor = argb(0x9A, 0x7B, 0xD4),
+        human = false,
+    )
+
+    val tuli = LoveInterest(
+        id = "tuli",
+        name = "Tuli",
+        role = "Keeper of the Long Kitchen",
+        pronouns = Pronouns.THEY,
+        presentation = PresentationStyle.ANDROGYNOUS,
+        tagline = "Feeds anything that arrives. Asks questions afterwards, if at all.",
+        bio = "Tidal-blue and tapered-eared, Tuli runs the kitchen that every traveller on Uto ends " +
+            "up in eventually. They have fed four species this month and are quietly keeping count " +
+            "of which ones came back.",
+        themeColor = argb(0x62, 0xA8, 0xC4),
+        human = false,
+    )
+
+    val all: List<LoveInterest> = listOf(lyra, nadia, rook, kaito, sev, idris, vess, orrin, tuli)
+
+    /** The people of Uto, who only exist in the player's world once they have flown. */
+    val utoCast: List<LoveInterest> = all.filter { !it.human }
 
     fun byId(id: String): LoveInterest =
         all.firstOrNull { it.id == id } ?: error("Unknown love interest: $id")

@@ -30,7 +30,11 @@ object WorldEngine {
      * Turning costs a step when you are facing another way, which is what makes it possible to talk
      * to someone beside you without walking into them — the same reason the classic games do it.
      */
-    fun move(position: WorldPosition, direction: Direction): MoveResult {
+    fun move(
+        position: WorldPosition,
+        direction: Direction,
+        flags: Set<String> = emptySet(),
+    ): MoveResult {
         val area = WorldAtlas.area(position.areaId)
 
         if (position.facing != direction) {
@@ -55,6 +59,14 @@ object WorldEngine {
 
         // Warps are checked after walkability so a door must also be a tile you can stand on.
         area.warpAt(nextX, nextY)?.let { warp ->
+            if (warp.requiresFlag != null && warp.requiresFlag !in flags) {
+                // Step onto the tile but go nowhere, so a closed exit is somewhere you can stand
+                // and look at rather than an invisible wall.
+                return MoveResult.Blocked(
+                    position = position.copy(x = nextX, y = nextY),
+                    blockedBy = warp.lockedMessage ?: "something not ready yet",
+                )
+            }
             val destination = WorldAtlas.area(warp.toAreaId)
             return MoveResult.Travelled(
                 position = WorldPosition(warp.toAreaId, warp.toX, warp.toY, warp.facingOnArrival),
@@ -90,7 +102,10 @@ object WorldEngine {
      * Used by the tests to prove no character or exit is walled off — the failure mode of a
      * hand-drawn map is a location nobody can actually get to.
      */
-    fun reachableTiles(from: WorldPosition): Set<Triple<String, Int, Int>> {
+    fun reachableTiles(
+        from: WorldPosition,
+        flags: Set<String> = emptySet(),
+    ): Set<Triple<String, Int, Int>> {
         val seen = mutableSetOf(Triple(from.areaId, from.x, from.y))
         val queue = ArrayDeque(listOf(Triple(from.areaId, from.x, from.y)))
 
@@ -104,9 +119,12 @@ object WorldEngine {
                 if (!area.map.isWalkable(nextX, nextY)) continue
                 if (area.npcAt(nextX, nextY) != null) continue
 
-                val step = area.warpAt(nextX, nextY)?.let { warp ->
+                val warp = area.warpAt(nextX, nextY)
+                val step = if (warp != null && (warp.requiresFlag == null || warp.requiresFlag in flags)) {
                     Triple(warp.toAreaId, warp.toX, warp.toY)
-                } ?: Triple(areaId, nextX, nextY)
+                } else {
+                    Triple(areaId, nextX, nextY)
+                }
 
                 if (seen.add(step)) queue.add(step)
             }
@@ -115,15 +133,20 @@ object WorldEngine {
     }
 
     /** Areas the player can walk to from [from]. */
-    fun reachableAreas(from: WorldPosition): Set<String> =
-        reachableTiles(from).map { it.first }.toSet()
+    fun reachableAreas(from: WorldPosition, flags: Set<String> = emptySet()): Set<String> =
+        reachableTiles(from, flags).map { it.first }.toSet()
 
     /**
      * True when the player can stand somewhere that faces [npc] in [areaId] — i.e. the character can
      * actually be talked to, not just seen across water.
      */
-    fun isNpcApproachable(areaId: String, npc: NpcSpawn, from: WorldPosition): Boolean {
-        val reachable = reachableTiles(from)
+    fun isNpcApproachable(
+        areaId: String,
+        npc: NpcSpawn,
+        from: WorldPosition,
+        flags: Set<String> = emptySet(),
+    ): Boolean {
+        val reachable = reachableTiles(from, flags)
         return Direction.entries.any { direction ->
             val standX = npc.x + direction.dx
             val standY = npc.y + direction.dy

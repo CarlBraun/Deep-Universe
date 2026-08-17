@@ -24,8 +24,8 @@ class StoreTest {
         for (tier in StoreCatalog.tiers) {
             assertTrue(tier.title.isNotBlank(), "${tier.id} has no title")
             assertTrue(tier.blurb.isNotBlank(), "${tier.id} has no blurb")
-            assertTrue(tier.starlight > 0, "${tier.id} grants nothing")
-            assertTrue(tier.bonusStarlight >= 0, "${tier.id} has a negative bonus")
+            assertTrue(tier.stars > 0, "${tier.id} grants nothing")
+            assertTrue(tier.bonusStars >= 0, "${tier.id} has a negative bonus")
             assertTrue(
                 NoOpPurchaseGateway.priceUnitsOf(tier) > 0,
                 "${tier.id} has an unreadable price label",
@@ -44,7 +44,7 @@ class StoreTest {
         val sorted = StoreCatalog.tiers.sortedBy { NoOpPurchaseGateway.priceUnitsOf(it) }
         var previousRate = 0f
         for (tier in sorted) {
-            val rate = tier.totalStarlight.toFloat() / NoOpPurchaseGateway.priceUnitsOf(tier)
+            val rate = tier.totalStars.toFloat() / NoOpPurchaseGateway.priceUnitsOf(tier)
             assertTrue(
                 rate >= previousRate,
                 "${tier.id} gives $rate per unit, worse than the cheaper tier's $previousRate",
@@ -63,7 +63,7 @@ class StoreTest {
         val smallest = StoreCatalog.tiers.minBy { NoOpPurchaseGateway.priceUnitsOf(it) }
         val cheapestOffer = StoreCatalog.offers.minBy { it.cost }
         assertTrue(
-            smallest.totalStarlight >= cheapestOffer.cost,
+            smallest.totalStars >= cheapestOffer.cost,
             "The cheapest purchase cannot buy the cheapest thing",
         )
     }
@@ -72,18 +72,18 @@ class StoreTest {
 
     @Test
     fun `spending Starlight requires having it`() {
-        val wallet = Wallet(starlight = 50)
+        val wallet = Wallet(stars = 50)
         assertTrue(wallet.canAfford(50))
         assertTrue(!wallet.canAfford(51))
-        assertEquals(0, wallet.spend(50).starlight)
-        assertEquals(50, wallet.spend(51).starlight, "An unaffordable spend must be a no-op")
+        assertEquals(0, wallet.spend(50).stars)
+        assertEquals(50, wallet.spend(51).stars, "An unaffordable spend must be a no-op")
     }
 
     @Test
     fun `a purchase grants the tier's total including its bonus`() {
         val tier = StoreCatalog.tier("support_medium") ?: fail("Missing tier")
         val wallet = Wallet().recordPurchase(tier, priceUnits = 4, monthKey = "2026-08")
-        assertEquals(tier.starlight + tier.bonusStarlight, wallet.starlight)
+        assertEquals(tier.stars + tier.bonusStars, wallet.stars)
         assertEquals(1, wallet.purchaseCount)
         assertEquals(4, wallet.spentThisMonth)
     }
@@ -175,7 +175,7 @@ class StoreTest {
         val richestFace = com.deepuniverse.core.character.Expression.entries.maxBy { it.unlockRank }
         val pointsNeeded = com.deepuniverse.core.game.Bond.totalPointsFor(richestFace.unlockRank)
         val state = GameState().withAffection("lyra", pointsNeeded)
-        assertEquals(0, state.wallet.starlight, "This player has never spent anything")
+        assertEquals(0, state.wallet.stars, "This player has never spent anything")
         assertTrue(
             com.deepuniverse.core.character.Expression.unlockedAt(state.rankFor("lyra"))
                 .contains(richestFace),

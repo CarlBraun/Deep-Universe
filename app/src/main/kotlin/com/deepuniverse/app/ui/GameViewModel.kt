@@ -333,15 +333,25 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         if (_screen.value != Screen.Overworld) return
         _overworldMessage.value = null
 
-        when (val result = WorldEngine.move(_worldPosition.value, direction)) {
+        when (val result = WorldEngine.move(_worldPosition.value, direction, _state.value.flags)) {
             is MoveResult.Turned -> _worldPosition.value = result.position
             is MoveResult.Walked -> _worldPosition.value = result.position
-            is MoveResult.Blocked -> Unit
+            is MoveResult.Blocked -> {
+                // Standing on a closed exit should explain itself rather than feel like a wall.
+                _worldPosition.value = result.position
+                if (result.blockedBy.length > 12) {
+                    _overworldMessage.value = "You are looking at ${result.blockedBy}."
+                }
+            }
 
             is MoveResult.Travelled -> {
                 _worldPosition.value = result.position
                 _state.update { it.copy(world = result.position) }
                 persist()
+                // Some places have something to say the first time you walk into them. This is how
+                // the ship in the bracken finds the player rather than the other way round.
+                storyEngine.sceneTriggeredBy(result.position.areaId, _state.value)
+                    ?.let { startScene(it) }
             }
         }
     }
@@ -460,7 +470,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                         )
                     }
                     _storeMessage.value =
-                        "Thank you, genuinely. ${result.tier.totalStarlight} ${StoreCatalog.CURRENCY} added."
+                        "Thank you, genuinely. ${result.tier.totalStars} ${StoreCatalog.CURRENCY} added."
                     persist()
                 }
 

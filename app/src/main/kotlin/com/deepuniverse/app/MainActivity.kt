@@ -104,7 +104,7 @@ private fun DeepUniverseApp(onFinish: () -> Unit) {
             reward = reward,
             momentsLeft = state.stamina.available,
             momentsMax = state.stamina.max,
-            starlight = state.wallet.starlight,
+            stars = state.wallet.stars,
             boosted = viewModel.isBoosted(),
             onMove = viewModel::move,
             onInteract = viewModel::interact,

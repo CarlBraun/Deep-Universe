@@ -26,6 +26,20 @@ enum class PresentationStyle(val label: String) {
     ANDROGYNOUS("Androgynous"),
 }
 
+/** Ear shape. Humans have one option; the peoples of Uto have rather more. */
+@Serializable
+enum class EarType(val label: String, val human: Boolean) {
+    ROUNDED("Rounded", true),
+    TAPERED("Tapered", false),
+    LONG("Long", false),
+    FINNED("Finned", false),
+    ;
+
+    companion object {
+        val humanOptions: List<EarType> get() = entries.filter { it.human }
+    }
+}
+
 @Serializable
 enum class HairStyle(val label: String, val presentationHint: PresentationStyle) {
     LONG_STRAIGHT("Long straight", PresentationStyle.FEMININE),
@@ -55,6 +69,7 @@ data class CharacterAppearance(
     val skinColor: Int = Palettes.skinTones[3].argb,
     val hairColor: Int = Palettes.hairColors[1].argb,
     val eyeColor: Int = Palettes.eyeColors[0].argb,
+    val earType: EarType = EarType.ROUNDED,
     val params: Map<AppearanceParam, Float> = emptyMap(),
 ) {
     /** Value of [param], falling back to its neutral default, always clamped to `0f..1f`. */

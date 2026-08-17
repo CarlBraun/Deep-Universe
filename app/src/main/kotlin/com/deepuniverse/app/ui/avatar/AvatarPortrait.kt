@@ -15,12 +15,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.PathOperation
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -28,7 +26,9 @@ import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.rotate
 import com.deepuniverse.core.character.AppearanceParam
 import com.deepuniverse.core.character.CharacterAppearance
+import com.deepuniverse.core.character.EarType
 import com.deepuniverse.core.character.Expression
+import com.deepuniverse.core.character.EarType
 import com.deepuniverse.core.character.ExpressionShape
 import com.deepuniverse.core.character.HairStyle
 import kotlin.math.max
@@ -209,7 +209,7 @@ private fun DrawScope.drawPortrait(
 
         drawBackHair(a, hair, face, shimmer)
         drawBody(a, skin, hair, face, w, h, breathe)
-        drawEars(skin, face)
+        drawEars(a, skin, face)
 
         // ---- head, lit from the upper left ----------------------------------
         drawPath(facePath, skin)
@@ -364,14 +364,76 @@ private fun facePath(f: Face): Path {
     }
 }
 
-private fun DrawScope.drawEars(skin: Color, f: Face) {
+/**
+ * Ears, which are most of what separates a person from Uto from a person from the camp.
+ *
+ * Drawn from the same skin colour as the face and swept back along the head, so a long ear reads as
+ * part of the character rather than as something stuck on.
+ */
+private fun DrawScope.drawEars(a: CharacterAppearance, skin: Color, f: Face) {
     val earH = f.height * 0.15f
+    val ear = skin.shade(0.93f)
+    val inner = skin.shade(0.78f)
+
     for (side in listOf(-1f, 1f)) {
-        drawOval(
-            color = skin.shade(0.93f),
-            topLeft = Offset(f.cx + side * f.cheekHalf - earH * 0.26f, f.cheekY - earH * 0.30f),
-            size = Size(earH * 0.52f, earH),
-        )
+        val baseX = f.cx + side * f.cheekHalf
+        when (a.earType) {
+            EarType.ROUNDED -> {
+                drawOval(
+                    color = ear,
+                    topLeft = Offset(baseX - earH * 0.26f, f.cheekY - earH * 0.30f),
+                    size = Size(earH * 0.52f, earH),
+                )
+            }
+
+            EarType.TAPERED, EarType.LONG -> {
+                val reach = if (a.earType == EarType.LONG) 2.4f else 1.3f
+                val tip = Offset(baseX + side * earH * reach, f.cheekY - earH * (0.55f + reach * 0.35f))
+                val shell = Path().apply {
+                    moveTo(baseX - side * earH * 0.10f, f.cheekY + earH * 0.42f)
+                    quadraticTo(
+                        baseX + side * earH * reach * 0.55f, f.cheekY + earH * 0.05f,
+                        tip.x, tip.y,
+                    )
+                    quadraticTo(
+                        baseX + side * earH * reach * 0.30f, f.cheekY - earH * 0.30f,
+                        baseX - side * earH * 0.10f, f.cheekY - earH * 0.30f,
+                    )
+                    close()
+                }
+                drawPath(shell, ear)
+                // A darker line down the inside, which is what makes a long ear read as an ear.
+                drawPath(
+                    Path().apply {
+                        moveTo(baseX + side * earH * 0.10f, f.cheekY + earH * 0.10f)
+                        quadraticTo(
+                            baseX + side * earH * reach * 0.55f, f.cheekY - earH * 0.05f,
+                            tip.x - side * earH * 0.25f, tip.y + earH * 0.22f,
+                        )
+                    },
+                    color = inner,
+                    style = Stroke(width = earH * 0.16f, cap = StrokeCap.Round),
+                )
+            }
+
+            EarType.FINNED -> {
+                // Three short fins fanning back from the temple.
+                repeat(3) { i ->
+                    val spread = earH * (0.9f + i * 0.28f)
+                    val lift = earH * (0.5f - i * 0.34f)
+                    val fin = Path().apply {
+                        moveTo(baseX - side * earH * 0.10f, f.cheekY + earH * 0.30f - i * earH * 0.22f)
+                        quadraticTo(
+                            baseX + side * spread * 0.6f, f.cheekY - lift * 0.4f - i * earH * 0.20f,
+                            baseX + side * spread, f.cheekY - lift - i * earH * 0.16f,
+                        )
+                        lineTo(baseX - side * earH * 0.10f, f.cheekY + earH * 0.05f - i * earH * 0.22f)
+                        close()
+                    }
+                    drawPath(fin, if (i == 1) ear else ear.shade(0.88f))
+                }
+            }
+        }
     }
 }
 
@@ -940,9 +1002,7 @@ private fun DrawScope.drawFrontHair(a: CharacterAppearance, hair: Color, f: Face
                 f.cx + crownHalf * 0.4f, f.top + span * 0.05f,
                 f.cx + crownHalf, f.top + span * 0.15f,
             )
-            lineTo(f.cx + crownHalf, crownTop)
-            lineTo(f.cx - crownHalf, crownTop)
-            close()
+            closeAlongCrown(f.cx, crownHalf, crownTop, span, f.top + span * 0.22f)
         }
 
         HairStyle.SHORT_MESSY, HairStyle.CURLY_CLOUD -> Path().apply {
@@ -954,9 +1014,7 @@ private fun DrawScope.drawFrontHair(a: CharacterAppearance, hair: Color, f: Face
                 quadraticTo(x + step * 0.5f, f.top + span * depth, x + step, f.top + span * 0.10f)
                 x += step
             }
-            lineTo(f.cx + crownHalf, crownTop)
-            lineTo(f.cx - crownHalf, crownTop)
-            close()
+            closeAlongCrown(f.cx, crownHalf, crownTop, span, f.top + span * 0.22f)
         }
 
         else -> Path().apply {
@@ -972,9 +1030,7 @@ private fun DrawScope.drawFrontHair(a: CharacterAppearance, hair: Color, f: Face
                 f.cx + crownHalf * 0.82f, f.top + span * 0.37f,
                 f.cx + crownHalf, f.top + span * 0.06f,
             )
-            lineTo(f.cx + crownHalf, crownTop)
-            lineTo(f.cx - crownHalf, crownTop)
-            close()
+            closeAlongCrown(f.cx, crownHalf, crownTop, span, f.top + span * 0.22f)
         }
     }
 
@@ -989,31 +1045,54 @@ private fun DrawScope.drawFrontHair(a: CharacterAppearance, hair: Color, f: Face
         }
     }
 
-    // The highlight band across the crown — the single detail that most makes hair look like hair.
+    // The shine across the crown — the single detail that most makes hair look like hair.
+    // Drawn as a soft lens clipped to the head rather than a ring built from boolean path
+    // operations, which are the other reliable way to end up with a stray rectangle on screen.
     val bandTop = crownTop + span * (0.06f + 0.01f * kotlin.math.sin(shimmer * 6.28f))
-    val band = Path().apply {
-        addOval(
-            Rect(
-                left = f.cx - crownHalf * 0.70f,
-                top = bandTop,
-                right = f.cx + crownHalf * 0.70f,
-                bottom = bandTop + span * 0.13f,
+    clipPath(cap) {
+        drawOval(
+            brush = Brush.verticalGradient(
+                colors = listOf(
+                    Color.Transparent,
+                    hair.lighten(1.85f).copy(alpha = 0.60f),
+                    Color.Transparent,
+                ),
+                startY = bandTop,
+                endY = bandTop + span * 0.14f,
             ),
+            topLeft = Offset(f.cx - crownHalf * 0.72f, bandTop),
+            size = Size(crownHalf * 1.44f, span * 0.14f),
         )
     }
-    val inner = Path().apply {
-        addOval(
-            Rect(
-                left = f.cx - crownHalf * 0.62f,
-                top = bandTop + span * 0.030f,
-                right = f.cx + crownHalf * 0.62f,
-                bottom = bandTop + span * 0.115f,
-            ),
-        )
-    }
-    val ring = Path().apply { op(band, inner, PathOperation.Difference) }
-    val clippedToHead = Path().apply { op(ring, cap, PathOperation.Intersect) }
-    drawPath(clippedToHead, hair.lighten(1.75f).copy(alpha = 0.55f))
+}
+
+/**
+ * Closes a fringe by retracing the skull's own outline back to the left side.
+ *
+ * Fringes used to close with straight lines across the top at full crown width. The cap underneath
+ * curves inwards as it rises, so those corners stuck out past the head and read as a square block of
+ * hair sitting on the character. Following the same curve the cap uses means the hair mass can never
+ * be wider than the skull it is on.
+ */
+private fun Path.closeAlongCrown(
+    cx: Float,
+    crownHalf: Float,
+    crownTop: Float,
+    span: Float,
+    sideY: Float,
+) {
+    lineTo(cx + crownHalf, sideY)
+    cubicTo(
+        cx + crownHalf, crownTop + span * 0.02f,
+        cx + crownHalf * 0.54f, crownTop,
+        cx, crownTop,
+    )
+    cubicTo(
+        cx - crownHalf * 0.54f, crownTop,
+        cx - crownHalf, crownTop + span * 0.02f,
+        cx - crownHalf, sideY,
+    )
+    close()
 }
 
 // --------------------------------------------------------------------------- helpers

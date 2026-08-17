@@ -306,7 +306,7 @@ class ProgressionTest {
         val poor = GameState(characterCreated = true).withAffection("sev", 200)
         val rich = GameState(characterCreated = true)
             .withAffection("sev", 200)
-            .copy(wallet = com.deepuniverse.core.store.Wallet(starlight = 99_999, purchaseCount = 40))
+            .copy(wallet = com.deepuniverse.core.store.Wallet(stars = 99_999, purchaseCount = 40))
 
         val a = Companionship.spendMomentWith(poor, "sev", now) as CompanionResult.Shared
         val b = Companionship.spendMomentWith(rich, "sev", now) as CompanionResult.Shared

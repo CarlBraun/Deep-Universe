@@ -48,6 +48,25 @@ object Palettes {
         Swatch("mint", "Mint", argb(0x6F, 0xC5, 0xA8)),
     )
 
+    /**
+     * Skin tones found on Uto and nowhere on Earth.
+     *
+     * Kept in a separate list from [skinTones] for the same reason the stylised hair colours are:
+     * the photo analyzer only ever searches the human list, so no lighting condition can hand a
+     * player green skin. They are offered in the creator by hand, and the Uto cast uses them.
+     */
+    val otherworldlySkinTones: List<Swatch> = listOf(
+        Swatch("verdant", "Verdant", argb(0x7C, 0xA8, 0x6B)),
+        Swatch("moss", "Deep moss", argb(0x4F, 0x7A, 0x50)),
+        Swatch("orchid", "Orchid", argb(0xA8, 0x83, 0xC4)),
+        Swatch("amethyst", "Amethyst", argb(0x7B, 0x5C, 0xA0)),
+        Swatch("tidal", "Tidal blue", argb(0x6A, 0x9E, 0xB8)),
+        Swatch("ash_rose", "Ash rose", argb(0xC4, 0x8B, 0x94)),
+    )
+
+    /** Everything the creator offers for skin: human tones first, then the rest. */
+    val allSkinTones: List<Swatch> get() = skinTones + otherworldlySkinTones
+
     val eyeColors: List<Swatch> = listOf(
         Swatch("darkbrown", "Dark brown", argb(0x4A, 0x2F, 0x20)),
         Swatch("hazel", "Hazel", argb(0x8A, 0x5F, 0x2E)),
@@ -70,7 +89,7 @@ object Palettes {
     fun nearest(swatches: List<Swatch>, sampled: Int): Swatch =
         swatches.minBy { perceptualDistance(it.argb, sampled) }
 
-    fun skin(id: String): Swatch = skinTones.first { it.id == id }
+    fun skin(id: String): Swatch = allSkinTones.first { it.id == id }
     fun hair(id: String): Swatch = hairColors.first { it.id == id }
     fun eye(id: String): Swatch = eyeColors.first { it.id == id }
 }

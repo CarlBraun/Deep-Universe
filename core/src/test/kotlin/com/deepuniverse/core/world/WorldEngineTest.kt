@@ -137,6 +137,124 @@ class WorldEngineTest {
         }
     }
 
+    // ---------------------------------------------------------------- tap to walk
+
+    @Test
+    fun `a route to an open tile is one of the shortest`() {
+        val from = WorldPosition(WorldAtlas.GREAT_LODGE, x = 3, y = 8, facing = Direction.DOWN)
+        val steps = WorldEngine.path(from, 7, 8) ?: fail("The lodge floor should be crossable")
+        assertEquals(4, steps.size, "Four tiles apart should be a four-step route")
+        assertTrue(steps.all { it == Direction.RIGHT })
+    }
+
+    @Test
+    fun `a route follows the actual walkable path, not a straight line`() {
+        // From the camp's south gate up to the north gate, around the fire in the middle.
+        val from = WorldPosition(WorldAtlas.CAMP_CLEARING, x = 7, y = 10, facing = Direction.UP)
+        val steps = WorldEngine.path(from, 7, 1) ?: fail("The camp should be crossable")
+
+        // Walk it and check we arrive without ever standing somewhere solid.
+        var position = from
+        for (step in steps) {
+            position = when (val result = WorldEngine.move(position.copy(facing = step), step)) {
+                is MoveResult.Walked -> result.position
+                is MoveResult.Travelled -> fail("A route must not pass through an exit")
+                is MoveResult.Turned -> position
+                is MoveResult.Blocked -> fail("Route walked into ${result.blockedBy}")
+            }
+        }
+        assertEquals(7 to 1, position.x to position.y)
+    }
+
+    @Test
+    fun `tapping a person routes beside them and turns to face them`() {
+        // Idris stands at (8, 4) in the camp.
+        val from = WorldPosition(WorldAtlas.CAMP_CLEARING, x = 3, y = 8, facing = Direction.UP)
+        val steps = WorldEngine.path(from, 8, 4) ?: fail("Idris should be reachable")
+
+        var position = from
+        for (step in steps) {
+            var result = WorldEngine.move(position, step)
+            if (result is MoveResult.Turned) {
+                position = result.position
+                result = WorldEngine.move(position, step)
+            }
+            position = when (result) {
+                is MoveResult.Walked -> result.position
+                is MoveResult.Turned -> result.position
+                is MoveResult.Blocked -> position.copy(facing = step)
+                is MoveResult.Travelled -> fail("A route must stay in the area")
+            }
+        }
+        assertEquals(
+            "idris",
+            WorldEngine.facingNpc(position)?.loveInterestId,
+            "Tapping someone should end up looking at them",
+        )
+    }
+
+    @Test
+    fun `a route never passes through a door into another area`() {
+        // The lodge's only exit is at the bottom; a route across the floor must not use it.
+        val from = WorldPosition(WorldAtlas.GREAT_LODGE, x = 2, y = 9, facing = Direction.DOWN)
+        val steps = WorldEngine.path(from, 13, 9) ?: fail("Should be able to cross the lodge")
+        var position = from
+        for (step in steps) {
+            val result = WorldEngine.move(position.copy(facing = step), step)
+            assertTrue(result !is MoveResult.Travelled, "Route left the area through a door")
+            if (result is MoveResult.Walked) position = result.position
+        }
+    }
+
+    @Test
+    fun `tapping a door does route onto it, because that is clearly the intent`() {
+        val from = WorldPosition(WorldAtlas.GREAT_LODGE, x = 7, y = 9, facing = Direction.DOWN)
+        val steps = WorldEngine.path(from, 7, 11)
+        assertTrue(steps != null && steps.isNotEmpty(), "A tapped exit should be reachable")
+    }
+
+    @Test
+    fun `tapping where you already stand asks for no steps`() {
+        val here = WorldPosition(WorldAtlas.GREAT_LODGE, x = 7, y = 8, facing = Direction.UP)
+        assertEquals(emptyList(), WorldEngine.path(here, 7, 8))
+    }
+
+    @Test
+    fun `an unreachable tile reports no route rather than a wrong one`() {
+        val from = WorldPosition(WorldAtlas.GREAT_LODGE, x = 7, y = 8, facing = Direction.UP)
+        assertEquals(null, WorldEngine.path(from, 0, 0), "A wall has no route to it")
+        assertEquals(null, WorldEngine.path(from, 99, 99), "Off-map has no route to it")
+    }
+
+    @Test
+    fun `every character can be reached by tapping them`() {
+        // The point of tap-to-walk: it must work for the thing players will tap most.
+        for (area in WorldAtlas.areas) {
+            for (npc in area.npcs) {
+                val start = area.npcs.first().let { _ ->
+                    // Start from any walkable tile that is not on top of somebody.
+                    var found: WorldPosition? = null
+                    for (y in 0 until area.map.height) {
+                        for (x in 0 until area.map.width) {
+                            if (found == null &&
+                                area.map.isWalkable(x, y) &&
+                                area.npcAt(x, y) == null &&
+                                area.warpAt(x, y) == null
+                            ) {
+                                found = WorldPosition(area.id, x, y, Direction.DOWN)
+                            }
+                        }
+                    }
+                    found ?: fail("${area.id} has nowhere to stand")
+                }
+                assertTrue(
+                    WorldEngine.path(start, npc.x, npc.y) != null,
+                    "${npc.loveInterestId} in ${area.name} cannot be walked to by tapping",
+                )
+            }
+        }
+    }
+
     @Test
     fun `a full walk from the cabin to the beach works`() {
         // Walks the route a player actually takes on their first playthrough, one tile at a time,

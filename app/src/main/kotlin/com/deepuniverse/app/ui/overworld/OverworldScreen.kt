@@ -67,6 +67,14 @@ import kotlinx.coroutines.delay
 private const val STEP_MILLIS = 150
 
 /**
+ * How much the off-axis lean has to beat the on-axis one before the stick changes direction.
+ *
+ * 1.0 would mean no hysteresis at all and a thumb resting near a diagonal would flicker between two
+ * directions many times a second.
+ */
+private const val AXIS_STICKINESS = 1.5f
+
+/**
  * The walk-around world.
  *
  * You move your pixel self between the camp, the lodge, the cabins and the beach, and pressing the
@@ -87,6 +95,8 @@ fun OverworldScreen(
     boosted: Boolean,
     puzzleLabel: String?,
     onMove: (Direction) -> Unit,
+    /** Tapped a tile: walk there, and face whoever was tapped. */
+    onWalkTo: (Int, Int) -> Unit,
     onInteract: () -> Unit,
     onPlayPuzzle: () -> Unit,
     onDismissMessage: () -> Unit,
@@ -163,6 +173,7 @@ fun OverworldScreen(
                     position = position,
                     player = player,
                     frame = frame,
+                    onTapTile = onWalkTo,
                     modifier = Modifier.fillMaxSize(),
                 )
             }
@@ -225,9 +236,10 @@ fun OverworldScreen(
                 }
             } else {
                 Text(
-                    "Walk up to someone and face them to talk.",
+                    "Tap where you want to go — or tap someone to walk over and talk.",
                     style = MaterialTheme.typography.labelSmall,
                     color = MutedStar.copy(alpha = 0.6f),
+                    textAlign = TextAlign.Center,
                 )
             }
         }
@@ -258,6 +270,7 @@ private fun WorldCanvas(
     position: WorldPosition,
     player: CharacterAppearance,
     frame: Int,
+    onTapTile: (Int, Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     // Interpolating the drawn position rather than snapping is what makes walking feel like walking.
@@ -272,7 +285,27 @@ private fun WorldCanvas(
         label = "walkY",
     )
 
-    Canvas(modifier) {
+    Canvas(
+        modifier.pointerInput(area) {
+            // Tap the world to walk there. This is the primary way to get anywhere: aiming a stick
+            // at one specific doorway on a phone is genuinely hard, and pointing at the door is
+            // what the player wanted to say in the first place.
+            detectTapGestures { tap ->
+                val tile = minOf(
+                    size.width.toFloat() / area.map.width,
+                    size.height.toFloat() / area.map.height,
+                )
+                if (tile <= 0f) return@detectTapGestures
+                val originX = (size.width - tile * area.map.width) / 2f
+                val originY = (size.height - tile * area.map.height) / 2f
+                val x = kotlin.math.floor((tap.x - originX) / tile).toInt()
+                val y = kotlin.math.floor((tap.y - originY) / tile).toInt()
+                if (x in 0 until area.map.width && y in 0 until area.map.height) {
+                    onTapTile(x, y)
+                }
+            }
+        },
+    ) {
         // The whole area is shown at once — these maps are small, and seeing the entire clearing
         // beats scrolling a camera around it.
         val tile = minOf(size.width / area.map.width, size.height / area.map.height)
@@ -353,20 +386,33 @@ private fun Joystick(onStep: (Direction) -> Unit) {
     val density = LocalDensity.current
     val radiusPx = with(density) { (size - knobSize).toPx() / 2f }
     // Below this the touch is too central to mean a direction, which stops a resting thumb from
-    // walking the character into a wall.
-    val deadZone = radiusPx * 0.28f
+    // walking the character into a wall. Kept small: on a stick this wide, a deliberate lean is
+    // obvious, and a large dead zone is felt as the controls ignoring you.
+    val deadZone = radiusPx * 0.18f
 
     var knob by remember { mutableStateOf(Offset.Zero) }
     var heading by remember { mutableStateOf<Direction?>(null) }
+    var engaged by remember { mutableStateOf(false) }
 
-    LaunchedEffect(heading) {
-        val direction = heading ?: return@LaunchedEffect
-        onStep(direction)
-        // A short pause before repeating, so a nudge is a single step.
-        delay(240)
+    // The repeat loop is keyed on *whether a thumb is down*, not on which way it is pointing, and
+    // reads the heading fresh each tick. Keying it on the heading — the obvious version — restarts
+    // the whole loop, initial delay and all, every time a wobbling thumb crosses a diagonal, which
+    // is exactly what made the stick feel like it was fighting back.
+    LaunchedEffect(engaged) {
+        if (!engaged) return@LaunchedEffect
+        var stepsTaken = 0
         while (true) {
-            onStep(heading ?: return@LaunchedEffect)
-            delay(STEP_MILLIS.toLong())
+            val direction = heading
+            if (direction == null) {
+                // Thumb down but centred: wait for it to mean something without burning the loop.
+                delay(16)
+                continue
+            }
+            onStep(direction)
+            // A brief pause after the first step, so a tap of the stick is a single tile rather
+            // than a sprint. Every step after that is at walking speed.
+            delay(if (stepsTaken == 0) 190L else STEP_MILLIS.toLong())
+            stepsTaken++
         }
     }
 
@@ -387,15 +433,31 @@ private fun Joystick(onStep: (Direction) -> Unit) {
                         } else {
                             from
                         }
-                        heading = when {
-                            length < deadZone -> null
-                            kotlin.math.abs(from.x) > kotlin.math.abs(from.y) ->
-                                if (from.x > 0) Direction.RIGHT else Direction.LEFT
-                            else -> if (from.y > 0) Direction.DOWN else Direction.UP
+                        heading = if (length < deadZone) {
+                            null
+                        } else {
+                            val horizontalNow = kotlin.math.abs(from.x)
+                            val verticalNow = kotlin.math.abs(from.y)
+                            // The axis you are already walking along is sticky: the other one has to
+                            // win clearly to take over. Without this, holding the stick anywhere near
+                            // a diagonal alternates between the two axes every few milliseconds and
+                            // the character shuffles on the spot instead of going anywhere.
+                            val goHorizontal = when (heading) {
+                                Direction.LEFT, Direction.RIGHT -> horizontalNow * AXIS_STICKINESS > verticalNow
+                                Direction.UP, Direction.DOWN -> horizontalNow > verticalNow * AXIS_STICKINESS
+                                null -> horizontalNow > verticalNow
+                            }
+                            when {
+                                goHorizontal && from.x > 0 -> Direction.RIGHT
+                                goHorizontal -> Direction.LEFT
+                                from.y > 0 -> Direction.DOWN
+                                else -> Direction.UP
+                            }
                         }
                     }
 
                     applyTouch(down.position)
+                    engaged = true
                     down.consume()
 
                     while (true) {
@@ -407,6 +469,7 @@ private fun Joystick(onStep: (Direction) -> Unit) {
                     }
                     knob = Offset.Zero
                     heading = null
+                    engaged = false
                 }
             },
         contentAlignment = Alignment.Center,

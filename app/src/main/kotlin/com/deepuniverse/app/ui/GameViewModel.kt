@@ -47,11 +47,21 @@ import com.deepuniverse.core.world.MoveResult
 import com.deepuniverse.core.world.NpcSpawn
 import com.deepuniverse.core.world.WorldEngine
 import com.deepuniverse.core.world.WorldPosition
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+
+/**
+ * How long one tile of an auto-walk takes.
+ *
+ * Matched to the overworld's step animation, so the sprite arrives on a tile exactly as it starts
+ * moving to the next one and a long walk reads as one continuous stride.
+ */
+private const val WALK_STEP_MILLIS = 150L
 
 /** Which screen is on top. Kept as a small stack so Back always has somewhere sensible to go. */
 sealed interface Screen {
@@ -196,6 +206,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     val worldPosition: StateFlow<WorldPosition>
         get() = _worldPosition
     private val _worldPosition = MutableStateFlow(GameState().world)
+
+    /** The walk-to-a-tapped-tile coroutine, so the stick or a new tap can cancel it. */
+    private var walkJob: Job? = null
 
     init {
         viewModelScope.launch {
@@ -390,37 +403,122 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     fun facingNpc(): NpcSpawn? = WorldEngine.facingNpc(_worldPosition.value)
 
     /**
-     * Takes one step (or turns on the spot).
+     * Takes one step in [direction], from the stick.
+     *
+     * Any auto-walk in progress is abandoned: the stick is the player taking the wheel back, and
+     * having the character continue towards a tile they tapped ten seconds ago would be the single
+     * most infuriating thing the controls could do.
+     */
+    fun move(direction: Direction) {
+        if (_screen.value != Screen.Overworld) return
+        walkJob?.cancel()
+        walkJob = null
+        _overworldMessage.value = null
+        step(direction)
+    }
+
+    /**
+     * One tile of movement — turning *and* stepping.
+     *
+     * The engine treats a turn as a whole move, the way the classic games do, which is what lets you
+     * face someone standing beside you without walking into them. On a touch stick that rule reads
+     * as lag: you lean towards a door, the character pivots, and nothing else happens until the next
+     * repeat. So the turn is absorbed here, at the call site, rather than changed in the engine —
+     * pointing at a door walks towards it immediately, and the engine's semantics (which the world
+     * tests depend on) are untouched.
      *
      * The save is only written when the player changes area rather than on every tile. Walking is
      * the most frequent thing in the game, and writing a file thirty times crossing a clearing
      * would be wasteful; an area boundary is a natural, cheap checkpoint.
+     *
+     * @return true when the player actually moved, so an auto-walk can tell it has stalled.
      */
-    fun move(direction: Direction) {
-        if (_screen.value != Screen.Overworld) return
-        _overworldMessage.value = null
+    private fun step(direction: Direction): Boolean {
+        val flags = _state.value.flags
+        val before = _worldPosition.value
+        var result = WorldEngine.move(before, direction, flags)
+        var turnedFirst = false
+        if (result is MoveResult.Turned) {
+            turnedFirst = true
+            result = WorldEngine.move(result.position, direction, flags)
+        }
 
-        when (val result = WorldEngine.move(_worldPosition.value, direction, _state.value.flags)) {
-            is MoveResult.Turned -> _worldPosition.value = result.position
-            is MoveResult.Walked -> _worldPosition.value = result.position
+        return when (val outcome = result) {
+            is MoveResult.Turned -> {
+                _worldPosition.value = outcome.position
+                false
+            }
+
+            is MoveResult.Walked -> {
+                _worldPosition.value = outcome.position
+                true
+            }
+
             is MoveResult.Blocked -> {
                 // Standing on a closed exit should explain itself rather than feel like a wall.
-                _worldPosition.value = result.position
-                if (result.blockedBy.length > 12) {
-                    _overworldMessage.value = "You are looking at ${result.blockedBy}."
+                _worldPosition.value = outcome.position
+                val steppedOnto = outcome.position.x != before.x || outcome.position.y != before.y
+                // Bumping a wall on the very press that turned you is not worth a line of dialogue —
+                // you asked to look that way and you are now looking that way. A locked door is,
+                // and a locked door is the case where the block still moved you onto a tile.
+                if ((steppedOnto || !turnedFirst) && outcome.blockedBy.length > 12) {
+                    _overworldMessage.value = "You are looking at ${outcome.blockedBy}."
                 }
+                steppedOnto
             }
 
             is MoveResult.Travelled -> {
-                _worldPosition.value = result.position
-                _state.update { it.copy(world = result.position) }
+                _worldPosition.value = outcome.position
+                _state.update { it.copy(world = outcome.position) }
                 persist()
                 // Some places have something to say the first time you walk into them. This is how
                 // the ship in the bracken finds the player rather than the other way round.
-                storyEngine.sceneTriggeredBy(result.position.areaId, _state.value)
+                storyEngine.sceneTriggeredBy(outcome.position.areaId, _state.value)
                     ?.let { startScene(it) }
+                true
             }
         }
+    }
+
+    /**
+     * Walks to a tapped tile, one step at a time.
+     *
+     * Aiming a stick at a specific doorway on a phone is genuinely hard, so the primary way to get
+     * anywhere is to point at it. Tapping a person means "go and talk to them" — the route ends
+     * beside them, facing them, with the talk button already lit.
+     */
+    fun walkTo(x: Int, y: Int) {
+        if (_screen.value != Screen.Overworld) return
+        val route = WorldEngine.path(_worldPosition.value, x, y, _state.value.flags)
+        if (route == null) {
+            _overworldMessage.value = "There's no way through to there."
+            return
+        }
+
+        walkJob?.cancel()
+        _overworldMessage.value = null
+        if (route.isEmpty()) return
+
+        walkJob = viewModelScope.launch {
+            route.forEachIndexed { index, direction ->
+                // Walking into a door mid-route starts a scene; the rest of the path belongs to the
+                // clearing we just left, so it is abandoned rather than played out underneath it.
+                if (_screen.value != Screen.Overworld) return@launch
+                val moved = step(direction)
+                // The last step of a route to a person is a turn, not a move, and is meant to fail
+                // to advance. Anywhere else, not moving means the route is stale — stop rather than
+                // grind into whatever appeared in the way.
+                if (!moved && index != route.lastIndex) return@launch
+                delay(WALK_STEP_MILLIS)
+            }
+            walkJob = null
+        }
+    }
+
+    /** Stops an auto-walk — used when a scene, a puzzle or a menu takes over. */
+    fun stopWalking() {
+        walkJob?.cancel()
+        walkJob = null
     }
 
     /**
@@ -431,6 +529,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun interact() {
         val npc = facingNpc() ?: return
+        stopWalking()
         // Remember where the player was standing, so the story starts and ends in the same spot.
         _state.update { it.copy(world = _worldPosition.value) }
 
@@ -513,6 +612,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
      * offer any meaning — but it costs a moment, never Stars, and never automatically.
      */
     fun startPuzzle(loveInterestId: String) {
+        stopWalking()
         val moment = now()
         if (!PuzzleInvite.canStart(_state.value, moment)) {
             _overworldMessage.value = "You're out of moments. Come back in a few minutes."

@@ -49,6 +49,7 @@ import com.deepuniverse.app.ui.theme.DriftGlow
 import com.deepuniverse.app.ui.theme.MutedStar
 import com.deepuniverse.core.game.LoveInterest
 import com.deepuniverse.core.puzzle.CookingGame
+import com.deepuniverse.core.puzzle.Dishes
 import com.deepuniverse.core.puzzle.Minesweeper
 import com.deepuniverse.core.puzzle.PuzzleKind
 import com.deepuniverse.core.puzzle.PuzzleOutcome
@@ -120,6 +121,7 @@ fun PuzzleScreen(
 
                 is PuzzleState.Cook -> CookingPot(
                     game = puzzle.game,
+                    cookId = member.id,
                     accent = accent,
                     onTick = onCookTick,
                 )
@@ -284,7 +286,12 @@ private fun SquirrelBoard(hunt: SquirrelHunt, accent: Color, onSearch: (Int, Int
 // --------------------------------------------------------------------------- cooking
 
 @Composable
-private fun CookingPot(game: CookingGame, accent: Color, onTick: (Long, Boolean) -> Unit) {
+private fun CookingPot(
+    game: CookingGame,
+    cookId: String,
+    accent: Color,
+    onTick: (Long, Boolean) -> Unit,
+) {
     var holding by remember { mutableStateOf(false) }
 
     // Drive the pot from the frame clock. The game owns no timer of its own, so this hands it the
@@ -297,6 +304,14 @@ private fun CookingPot(game: CookingGame, accent: Color, onTick: (Long, Boolean)
             onTick(nowMillis - last, holding)
             last = nowMillis
         }
+    }
+
+    // The gauge disappears the moment the cooking is over and the food takes its place. Leaving a
+    // finished bar on screen would mean the reward for a good cook is a full progress bar; the
+    // reward should be the dinner.
+    if (game.outcome != PuzzleOutcome.IN_PROGRESS) {
+        CookedDish(game = game, cookId = cookId, accent = accent)
+        return
     }
 
     Row(
@@ -390,6 +405,60 @@ private fun CookingPot(game: CookingGame, accent: Color, onTick: (Long, Boolean)
                 )
             }
         }
+    }
+}
+
+/**
+ * What came out of the pot.
+ *
+ * Shown for a loss as well as a win — a burnt dinner is still a dinner, and a joke about it lands
+ * better than a blank space where the food would have been.
+ */
+@Composable
+private fun CookedDish(game: CookingGame, cookId: String, accent: Color) {
+    val won = game.outcome == PuzzleOutcome.WON
+    // Keyed on the pot's own seed, so leaving the screen and coming back plates the same dinner
+    // rather than quietly rerolling into a different one.
+    val dish = remember(cookId, game.dishSeed, won, game.quality) {
+        if (won) {
+            Dishes.cookedBy(cookId, game.dishSeed, game.quality)
+        } else {
+            Dishes.ruinedBy(cookId, game.dishSeed)
+        }
+    }
+
+    Column(
+        Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        DishPlate(
+            dish = dish,
+            modifier = Modifier
+                .fillMaxWidth(0.86f)
+                .aspectRatio(1.25f),
+        )
+        Spacer(Modifier.height(10.dp))
+        Text(
+            dish.name,
+            style = MaterialTheme.typography.titleLarge,
+            color = if (won) accent else MutedStar,
+            textAlign = TextAlign.Center,
+        )
+        if (won) {
+            Text(
+                dish.quality.label,
+                style = MaterialTheme.typography.labelSmall,
+                color = MutedStar,
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "“${dish.note}”",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onBackground,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth(0.9f),
+        )
     }
 }
 

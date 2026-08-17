@@ -38,6 +38,26 @@ data class CookingGame(
     /** How much time is left, for the countdown. */
     val millisRemaining: Long get() = (timeLimitMillis - elapsedMillis).coerceAtLeast(0)
 
+    /** Which plate the cook chose, so the same pot always produces the same dinner. */
+    val dishSeed: Int get() = seed
+
+    /**
+     * How good the dish is, from how much of the clock was still on it.
+     *
+     * There is no separate scoring pass: holding the heat on the line fills the bar quickly, so
+     * finishing early *is* cooking it well. That keeps the reward honest — you cannot be told the
+     * dinner is excellent after a cook that felt like a scramble.
+     */
+    val quality: DishQuality
+        get() {
+            val used = if (timeLimitMillis <= 0L) 1f else elapsedMillis.toFloat() / timeLimitMillis
+            return when {
+                used <= 0.45f -> DishQuality.EXCELLENT
+                used <= 0.72f -> DishQuality.GOOD
+                else -> DishQuality.PASSABLE
+            }
+        }
+
     /**
      * Advances the pot by [deltaMillis].
      *

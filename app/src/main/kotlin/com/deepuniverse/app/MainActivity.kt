@@ -113,6 +113,7 @@ private fun DeepUniverseApp(onFinish: () -> Unit) {
                 viewModel.facingNpc()?.let { viewModel.puzzleKindFor(it.loveInterestId).label }
             },
             onMove = viewModel::move,
+            onWalkTo = viewModel::walkTo,
             onInteract = viewModel::interact,
             onPlayPuzzle = {
                 viewModel.facingNpc()?.let { viewModel.startPuzzle(it.loveInterestId) }

@@ -97,6 +97,92 @@ object WorldEngine {
     fun canInteract(position: WorldPosition): Boolean = facingNpc(position) != null
 
     /**
+     * The route from [from] to the tile at [targetX], [targetY], as a list of steps.
+     *
+     * Breadth-first, so the route is always one of the shortest. It deliberately stays *inside the
+     * current area* and never routes through an exit: a tap meaning "walk over there" should not
+     * send the player through a door into another location, which would be a surprising amount of
+     * consequence for one tap.
+     *
+     * Tapping a person is understood as "go and talk to them": the route ends on a tile beside them
+     * and the last step faces them, so the talk button lights up on arrival.
+     *
+     * @return the steps to take, empty if already there, or null when there is no way through.
+     */
+    fun path(
+        from: WorldPosition,
+        targetX: Int,
+        targetY: Int,
+        flags: Set<String> = emptySet(),
+    ): List<Direction>? {
+        val area = WorldAtlas.area(from.areaId)
+        if (!area.map.contains(targetX, targetY)) return null
+
+        val npcTarget = area.npcAt(targetX, targetY)
+        // Standing on a person is impossible, so aim for the squares around them instead.
+        val goals: Set<Pair<Int, Int>> = if (npcTarget != null) {
+            Direction.entries
+                .map { targetX + it.dx to targetY + it.dy }
+                .filter { (x, y) -> area.map.isWalkable(x, y) && area.npcAt(x, y) == null }
+                .toSet()
+        } else {
+            if (!area.map.isWalkable(targetX, targetY)) return null
+            setOf(targetX to targetY)
+        }
+        if (goals.isEmpty()) return null
+
+        val start = from.x to from.y
+        if (start in goals) {
+            // Already in place; just turn to face a person if that is what was tapped.
+            return npcTarget?.let { facingStep(from.x, from.y, targetX, targetY) } ?: emptyList()
+        }
+
+        val cameFrom = mutableMapOf(start to (null as Pair<Pair<Int, Int>, Direction>?))
+        val queue = ArrayDeque(listOf(start))
+        var found: Pair<Int, Int>? = null
+
+        while (queue.isNotEmpty() && found == null) {
+            val current = queue.removeFirst()
+            for (direction in Direction.entries) {
+                val next = current.first + direction.dx to current.second + direction.dy
+                if (next in cameFrom) continue
+                if (!area.map.isWalkable(next.first, next.second)) continue
+                if (area.npcAt(next.first, next.second) != null) continue
+                // Never route through an exit; walking somewhere should not change location.
+                if (area.warpAt(next.first, next.second) != null && next !in goals) continue
+
+                cameFrom[next] = current to direction
+                if (next in goals) {
+                    found = next
+                    break
+                }
+                queue.add(next)
+            }
+        }
+
+        val destination = found ?: return null
+        val steps = ArrayDeque<Direction>()
+        var walk: Pair<Int, Int>? = destination
+        while (walk != null) {
+            val previous = cameFrom[walk] ?: break
+            steps.addFirst(previous.second)
+            walk = previous.first
+        }
+
+        // Finish by turning to face the person who was tapped.
+        if (npcTarget != null) {
+            steps.addAll(facingStep(destination.first, destination.second, targetX, targetY))
+        }
+        return steps.toList()
+    }
+
+    /** The single step that turns someone at [x],[y] to face [towardX],[towardY]. */
+    private fun facingStep(x: Int, y: Int, towardX: Int, towardY: Int): List<Direction> =
+        Direction.entries.firstOrNull { x + it.dx == towardX && y + it.dy == towardY }
+            ?.let { listOf(it) }
+            ?: emptyList()
+
+    /**
      * Every tile reachable on foot from [from], following warps between areas.
      *
      * Used by the tests to prove no character or exit is walled off — the failure mode of a

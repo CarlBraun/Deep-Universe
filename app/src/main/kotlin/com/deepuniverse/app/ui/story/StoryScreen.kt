@@ -29,6 +29,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.deepuniverse.app.ui.avatar.AvatarPortrait
 import com.deepuniverse.app.ui.avatar.CastLooks
+import com.deepuniverse.app.ui.theme.DriftGlow
 import com.deepuniverse.app.ui.theme.MutedStar
 import com.deepuniverse.core.character.CharacterAppearance
 import com.deepuniverse.core.game.LoveInterest
@@ -45,13 +46,14 @@ import com.deepuniverse.core.game.StoryFrame
 @Composable
 fun StoryScreen(
     playback: ScenePlayback,
-    member: LoveInterest,
+    /** Null for a scene about the world rather than a person — the ship in the bracken has no owner. */
+    member: LoveInterest?,
     player: CharacterAppearance,
     onAdvance: () -> Unit,
     onChoose: (Int) -> Unit,
     onExit: () -> Unit,
 ) {
-    val accent = Color(member.themeColor)
+    val accent = member?.let { Color(it.themeColor) } ?: DriftGlow
     val frame = playback.frame()
 
     Box(
@@ -61,9 +63,10 @@ fun StoryScreen(
             .then(if (playback.canAdvance) Modifier.clickable(onClick = onAdvance) else Modifier),
     ) {
         // Whoever is speaking gets the stage. Narration keeps the partner on screen, dimmed.
+        // With nobody on stage — a scene about a place — the player stands in it alone.
         val speakerIsPlayer = (frame as? StoryFrame.Line)?.isPlayer == true
         AvatarPortrait(
-            appearance = if (speakerIsPlayer) player else CastLooks.of(member.id),
+            appearance = if (speakerIsPlayer || member == null) player else CastLooks.of(member.id),
             modifier = Modifier
                 .fillMaxWidth()
                 .fillMaxHeight(0.72f)
@@ -131,7 +134,7 @@ fun StoryScreen(
                 is StoryFrame.Ended -> {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
-                            if (frame.gainedAffection > 0) {
+                            if (frame.gainedAffection > 0 && member != null) {
                                 "You grew closer to ${member.name}."
                             } else {
                                 "The moment passes."
@@ -152,7 +155,7 @@ fun StoryScreen(
                             colors = ButtonDefaults.buttonColors(containerColor = accent),
                             modifier = Modifier.fillMaxWidth().height(50.dp),
                         ) {
-                            Text("Back to ${member.name.substringBefore(' ')}")
+                            Text(member?.let { "Back to ${it.name.substringBefore(' ')}" } ?: "Go on")
                         }
                     }
                 }

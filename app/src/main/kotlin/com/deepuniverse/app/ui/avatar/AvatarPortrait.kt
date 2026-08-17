@@ -28,7 +28,6 @@ import com.deepuniverse.core.character.AppearanceParam
 import com.deepuniverse.core.character.CharacterAppearance
 import com.deepuniverse.core.character.EarType
 import com.deepuniverse.core.character.Expression
-import com.deepuniverse.core.character.EarType
 import com.deepuniverse.core.character.ExpressionShape
 import com.deepuniverse.core.character.HairStyle
 import kotlin.math.max

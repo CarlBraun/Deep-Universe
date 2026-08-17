@@ -170,7 +170,7 @@ private fun DeepUniverseApp(onFinish: () -> Unit) {
             } else {
                 StoryScreen(
                     playback = active,
-                    member = Cast.byId(active.scene.loveInterestId),
+                    member = active.scene.loveInterestId?.let { Cast.byId(it) },
                     player = state.player,
                     onAdvance = viewModel::advanceStory,
                     onChoose = viewModel::chooseStoryOption,

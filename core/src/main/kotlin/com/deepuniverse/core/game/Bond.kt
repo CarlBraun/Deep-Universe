@@ -25,11 +25,20 @@ object Bond {
         return 12 * rank * (rank + 1) / 2
     }
 
-    /** The rank [points] buys. Grows without limit. */
+    /**
+     * Highest rank the search will report.
+     *
+     * Far beyond anything reachable by playing, but bounded on purpose: without a cap, a large
+     * enough points value overflows the threshold arithmetic, the comparison stays true, and the
+     * loop never ends — which presents to a player as the app freezing.
+     */
+    const val MAX_RANK: Int = 10_000
+
+    /** The rank [points] buys. Grows without practical limit. */
     fun rankFor(points: Int): Int {
         if (points <= 0) return 0
         var rank = 0
-        while (totalPointsFor(rank + 1) <= points) rank++
+        while (rank < MAX_RANK && totalPointsFor(rank + 1) <= points) rank++
         return rank
     }
 

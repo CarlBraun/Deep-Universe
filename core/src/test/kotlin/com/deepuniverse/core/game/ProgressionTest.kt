@@ -27,6 +27,15 @@ class ProgressionTest {
     }
 
     @Test
+    fun `an absurd affection value terminates instead of hanging`() {
+        // Guards the rank search against an overflowed threshold spinning forever, which would
+        // look to a player exactly like the app freezing.
+        assertTrue(Bond.rankFor(Int.MAX_VALUE) <= Bond.MAX_RANK)
+        assertTrue(Bond.rankFor(Int.MAX_VALUE) > 0)
+        assertTrue(Bond.totalPointsFor(Bond.MAX_RANK) > 0, "Thresholds must not overflow")
+    }
+
+    @Test
     fun `rank and total points agree in both directions`() {
         for (rank in 0..60) {
             val floor = Bond.totalPointsFor(rank)

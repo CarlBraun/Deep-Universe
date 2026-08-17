@@ -83,15 +83,20 @@ data class PhotoState(
     val error: String? = null,
 )
 
-class GameViewModel(
-    application: Application,
+class GameViewModel(application: Application) : AndroidViewModel(application) {
+
     /**
      * Swapped for a real Play Billing implementation when the game ships. Until then no money can
      * change hands, and the stub is deliberately obvious so a debug build cannot be mistaken for a
      * live one.
+     *
+     * Deliberately *not* a constructor parameter with a default. Kotlin default arguments do not
+     * generate a one-argument constructor, and the default ViewModel factory looks up
+     * `GameViewModel(Application)` reflectively — so taking the gateway as a defaulted parameter
+     * compiles perfectly and then throws "Cannot create an instance of class GameViewModel" the
+     * instant the UI composes. Injecting it needs a real ViewModelProvider.Factory, not a default.
      */
-    private val gateway: PurchaseGateway = NoOpPurchaseGateway(),
-) : AndroidViewModel(application) {
+    private val gateway: PurchaseGateway = NoOpPurchaseGateway()
 
     private val saveStore = SaveStore(application)
     private val generator = PhotoCharacterGenerator(application)
@@ -133,24 +138,29 @@ class GameViewModel(
 
     init {
         viewModelScope.launch {
-            val loaded = saveStore.load()
-            if (loaded != null) {
-                _state.value = loaded
-                _draft.value = loaded.player
-                _worldPosition.value = loaded.world
-            }
-            refreshTimedState()
-            // A purchase that settled while the app was gone must still be delivered; losing what
-            // someone paid for is the one store bug there is no apologising for.
-            for (restored in gateway.restorePurchases()) {
-                _state.update {
-                    it.copy(
-                        wallet = it.wallet.recordPurchase(
-                            restored.tier,
-                            restored.priceUnits,
-                            monthKey(),
-                        ),
-                    )
+            // Everything here is best-effort. The one outcome that must never happen is failing to
+            // leave the loading screen: a player staring at a spinner cannot even start a new game,
+            // which is indistinguishable from the app being broken.
+            runCatching {
+                val loaded = saveStore.load()
+                if (loaded != null) {
+                    _state.value = loaded
+                    _draft.value = loaded.player
+                    _worldPosition.value = loaded.world
+                }
+                refreshTimedState()
+                // A purchase that settled while the app was gone must still be delivered; losing
+                // what someone paid for is the one store bug there is no apologising for.
+                for (restored in gateway.restorePurchases()) {
+                    _state.update {
+                        it.copy(
+                            wallet = it.wallet.recordPurchase(
+                                restored.tier,
+                                restored.priceUnits,
+                                monthKey(),
+                            ),
+                        )
+                    }
                 }
             }
             _screen.value = Screen.Title

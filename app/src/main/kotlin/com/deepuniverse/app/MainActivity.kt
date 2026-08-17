@@ -35,6 +35,7 @@ import com.deepuniverse.app.ui.Screen
 import com.deepuniverse.app.ui.creator.CharacterCreatorScreen
 import com.deepuniverse.app.ui.home.HomeScreen
 import com.deepuniverse.app.ui.overworld.OverworldScreen
+import com.deepuniverse.app.ui.store.StoreScreen
 import com.deepuniverse.app.ui.route.RouteScreen
 import com.deepuniverse.app.ui.story.StoryScreen
 import com.deepuniverse.app.ui.theme.DeepUniverseTheme
@@ -74,6 +75,9 @@ private fun DeepUniverseApp(onFinish: () -> Unit) {
     val playback by viewModel.playback.collectAsStateWithLifecycle()
     val worldPosition by viewModel.worldPosition.collectAsStateWithLifecycle()
     val overworldMessage by viewModel.overworldMessage.collectAsStateWithLifecycle()
+    val reward by viewModel.reward.collectAsStateWithLifecycle()
+    val storeMessage by viewModel.storeMessage.collectAsStateWithLifecycle()
+    val purchasing by viewModel.purchasing.collectAsStateWithLifecycle()
 
     BackHandler(enabled = true) {
         if (!viewModel.goBack()) onFinish()
@@ -97,10 +101,28 @@ private fun DeepUniverseApp(onFinish: () -> Unit) {
             // Recomputed whenever the player turns or steps, which is exactly when it can change.
             facingNpc = remember(worldPosition) { viewModel.facingNpc() },
             message = overworldMessage,
+            reward = reward,
+            momentsLeft = state.stamina.available,
+            momentsMax = state.stamina.max,
+            starlight = state.wallet.starlight,
+            boosted = viewModel.isBoosted(),
             onMove = viewModel::move,
             onInteract = viewModel::interact,
             onDismissMessage = viewModel::dismissOverworldMessage,
+            onDismissReward = viewModel::dismissReward,
             onOpenJournal = viewModel::openHome,
+            onOpenStore = viewModel::openStore,
+        )
+
+        Screen.Store -> StoreScreen(
+            state = state,
+            purchasing = purchasing,
+            message = storeMessage,
+            onBuy = viewModel::buy,
+            onRedeem = viewModel::redeem,
+            onSetLimit = viewModel::setMonthlyLimit,
+            onDismissMessage = viewModel::dismissStoreMessage,
+            onBack = viewModel::openOverworld,
         )
 
         Screen.Creator -> CharacterCreatorScreen(

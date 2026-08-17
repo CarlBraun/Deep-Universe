@@ -18,18 +18,29 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.border
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.deepuniverse.app.ui.avatar.AvatarPortrait
 import com.deepuniverse.app.ui.avatar.CastLooks
 import com.deepuniverse.app.ui.home.AffectionMeter
 import com.deepuniverse.app.ui.theme.MutedStar
-import com.deepuniverse.core.game.AffectionLevel
+import com.deepuniverse.core.character.Expression
+import com.deepuniverse.core.game.Bond
 import com.deepuniverse.core.game.GameState
 import com.deepuniverse.core.game.LoveInterest
 import com.deepuniverse.core.game.Scene
@@ -46,7 +57,12 @@ fun RouteScreen(
 ) {
     val accent = Color(member.themeColor)
     val points = state.affectionFor(member.id)
-    val level = AffectionLevel.forPoints(points)
+    val rank = Bond.rankFor(points)
+    val collected = remember(state, member.id) {
+        state.expressionsFor(member.id).sortedBy { it.unlockRank }
+    }
+    // The face shown on the big portrait. Tapping the gallery swaps it, which is the whole reward.
+    var shown by remember(member.id) { mutableStateOf(Expression.NEUTRAL) }
 
     LazyColumn(
         modifier = Modifier
@@ -58,6 +74,8 @@ fun RouteScreen(
             Box(Modifier.fillMaxWidth().height(320.dp)) {
                 AvatarPortrait(
                     appearance = CastLooks.of(member.id),
+                    expression = shown,
+                    accent = accent,
                     modifier = Modifier.fillMaxSize(),
                 )
                 // Fade the portrait into the page so the text below has something to sit on.
@@ -99,17 +117,60 @@ fun RouteScreen(
                     Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
-                    Text(level.label, style = MaterialTheme.typography.labelLarge, color = accent)
                     Text(
-                        AffectionLevel.pointsToNext(points)
-                            ?.let { "$it to ${nextLevelLabel(points)}" }
-                            ?: "Closest bond",
+                        Bond.titleFor(rank),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = accent,
+                    )
+                    Text(
+                        "${Bond.pointsToNextRank(points)} to ${Bond.titleFor(rank + 1)}",
                         style = MaterialTheme.typography.labelSmall,
                         color = MutedStar,
                     )
                 }
                 Spacer(Modifier.height(6.dp))
                 AffectionMeter(points = points, accent = accent)
+
+                // ---- the collection --------------------------------------------
+                Spacer(Modifier.height(24.dp))
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text("Expressions", style = MaterialTheme.typography.titleLarge)
+                    Text(
+                        "${collected.size} / ${Expression.entries.size}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MutedStar,
+                    )
+                }
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    Expression.nextAfter(rank)?.let {
+                        "Next: ${it.label}, at ${Bond.titleFor(it.unlockRank)}."
+                    } ?: "You have every face they have.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MutedStar,
+                )
+                Spacer(Modifier.height(10.dp))
+                Row(
+                    Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    collected.forEach { face ->
+                        ExpressionChip(
+                            member = member,
+                            face = face,
+                            accent = accent,
+                            selected = face == shown,
+                            onClick = { shown = face },
+                        )
+                    }
+                    Expression.nextAfter(rank)?.let { nextFace ->
+                        LockedExpressionChip(nextFace)
+                    }
+                }
+
                 Spacer(Modifier.height(24.dp))
                 Text("Moments", style = MaterialTheme.typography.titleLarge)
                 Spacer(Modifier.height(10.dp))
@@ -195,5 +256,72 @@ private fun SceneRow(
     }
 }
 
-private fun nextLevelLabel(points: Int): String =
-    AffectionLevel.entries.firstOrNull { it.minPoints > points }?.label ?: ""
+
+@Composable
+private fun ExpressionChip(
+    member: LoveInterest,
+    face: Expression,
+    accent: Color,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.width(84.dp),
+    ) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .aspectRatio(0.85f)
+                .clip(RoundedCornerShape(12.dp))
+                .border(
+                    width = if (selected) 2.dp else 0.dp,
+                    color = if (selected) accent else Color.Transparent,
+                    shape = RoundedCornerShape(12.dp),
+                )
+                .clickable(onClick = onClick),
+        ) {
+            AvatarPortrait(
+                appearance = CastLooks.of(member.id),
+                expression = face,
+                accent = accent,
+                animated = false,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+        Spacer(Modifier.height(4.dp))
+        Text(
+            face.label,
+            style = MaterialTheme.typography.labelSmall,
+            color = if (selected) accent else MutedStar,
+            textAlign = TextAlign.Center,
+        )
+    }
+}
+
+/** The next face still to earn, shown as a silhouette so there is something to want. */
+@Composable
+private fun LockedExpressionChip(face: Expression) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.width(84.dp),
+    ) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .aspectRatio(0.85f)
+                .clip(RoundedCornerShape(12.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("?", style = MaterialTheme.typography.displaySmall, color = MutedStar)
+        }
+        Spacer(Modifier.height(4.dp))
+        Text(
+            Bond.titleFor(face.unlockRank),
+            style = MaterialTheme.typography.labelSmall,
+            color = MutedStar,
+            textAlign = TextAlign.Center,
+        )
+    }
+}

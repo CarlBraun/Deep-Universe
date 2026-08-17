@@ -1,6 +1,9 @@
 package com.deepuniverse.core.game
 
 import com.deepuniverse.core.character.CharacterAppearance
+import com.deepuniverse.core.character.Expression
+import com.deepuniverse.core.store.Boost
+import com.deepuniverse.core.store.Wallet
 import com.deepuniverse.core.world.WorldAtlas
 import com.deepuniverse.core.world.WorldPosition
 import kotlinx.serialization.Serializable
@@ -22,6 +25,11 @@ data class GameState(
     val affection: Map<String, Int> = emptyMap(),
     val flags: Set<String> = emptySet(),
     val completedScenes: Set<String> = emptySet(),
+    /** Faces earned, per character. The main collection. */
+    val unlockedExpressions: Map<String, Set<Expression>> = emptyMap(),
+    val stamina: Stamina = Stamina(),
+    val wallet: Wallet = Wallet(),
+    val boosts: List<Boost> = emptyList(),
 ) {
     fun affectionFor(loveInterestId: String): Int = affection[loveInterestId] ?: 0
 
@@ -37,6 +45,37 @@ data class GameState(
 
     fun withCompletedScene(sceneId: String): GameState =
         copy(completedScenes = completedScenes + sceneId)
+
+    fun rankFor(loveInterestId: String): Int = Bond.rankFor(affectionFor(loveInterestId))
+
+    /**
+     * Faces earned with this character.
+     *
+     * Derived from the bond rank *as well as* read from storage. Affection is granted from several
+     * places — story choices, moments together, and possibly gifts later — and only one of them
+     * used to record unlocks, so a player who levelled up purely through story choices earned no
+     * faces at all. Deriving from rank makes that impossible by construction; the stored set then
+     * only has to carry anything granted outside the rank curve.
+     */
+    fun expressionsFor(loveInterestId: String): Set<Expression> =
+        (unlockedExpressions[loveInterestId] ?: emptySet()) +
+            Expression.unlockedAt(Bond.rankFor(affectionFor(loveInterestId))) +
+            Expression.NEUTRAL
+
+    fun withUnlockedExpressions(loveInterestId: String, faces: List<Expression>): GameState {
+        if (faces.isEmpty()) return this
+        val existing = unlockedExpressions[loveInterestId] ?: emptySet()
+        return copy(unlockedExpressions = unlockedExpressions + (loveInterestId to existing + faces))
+    }
+
+    /** Total faces collected across the whole cast, for the gallery's counter. */
+    val collectedExpressionCount: Int
+        get() = unlockedExpressions.values.sumOf { it.size }
+
+    fun withBoost(boost: Boost, nowEpochSeconds: Long): GameState = copy(
+        // Drop anything expired while we are here, so the list cannot grow without bound.
+        boosts = boosts.filter { it.isActive(nowEpochSeconds) && it.kind != boost.kind } + boost,
+    )
 
     /** True once the player has reached the top bond tier with anyone. */
     val hasBeloved: Boolean

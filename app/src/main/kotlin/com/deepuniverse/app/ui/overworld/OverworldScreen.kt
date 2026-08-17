@@ -38,12 +38,17 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.deepuniverse.app.ui.Reward
+import com.deepuniverse.app.ui.avatar.AvatarPortrait
 import com.deepuniverse.app.ui.avatar.CastLooks
 import com.deepuniverse.app.ui.overworld.PixelSprite.drawCharacterSprite
 import com.deepuniverse.app.ui.overworld.TileArt.drawTile
 import com.deepuniverse.app.ui.theme.DriftGlow
 import com.deepuniverse.app.ui.theme.MutedStar
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.ui.draw.alpha
 import com.deepuniverse.core.character.CharacterAppearance
+import com.deepuniverse.core.game.Bond
 import com.deepuniverse.core.game.Cast
 import com.deepuniverse.core.world.Area
 import com.deepuniverse.core.world.Direction
@@ -69,10 +74,17 @@ fun OverworldScreen(
     player: CharacterAppearance,
     facingNpc: NpcSpawn?,
     message: String?,
+    reward: Reward?,
+    momentsLeft: Int,
+    momentsMax: Int,
+    starlight: Int,
+    boosted: Boolean,
     onMove: (Direction) -> Unit,
     onInteract: () -> Unit,
     onDismissMessage: () -> Unit,
+    onDismissReward: () -> Unit,
     onOpenJournal: () -> Unit,
+    onOpenStore: () -> Unit,
 ) {
     val area = remember(position.areaId) { WorldAtlas.area(position.areaId) }
 
@@ -106,7 +118,23 @@ fun OverworldScreen(
                     color = MutedStar,
                 )
             }
-            TextButton(onClick = onOpenJournal) { Text("Journal") }
+            Column(horizontalAlignment = Alignment.End) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "◈ $momentsLeft/$momentsMax",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = if (momentsLeft > 0) DriftGlow else MutedStar,
+                    )
+                    if (boosted) {
+                        Spacer(Modifier.size(6.dp))
+                        Text("×2", style = MaterialTheme.typography.labelLarge, color = Color(0xFF8FD9A8))
+                    }
+                }
+                Row {
+                    TextButton(onClick = onOpenJournal) { Text("Journal") }
+                    TextButton(onClick = onOpenStore) { Text("✦ $starlight") }
+                }
+            }
         }
 
         // ---- the map --------------------------------------------------------
@@ -131,9 +159,13 @@ fun OverworldScreen(
                 )
             }
 
+            if (reward != null) {
+                RewardCard(reward = reward, onDismiss = onDismissReward)
+            }
+
             // A passing remark from someone with no new scene for you, over the map so the world
             // stays visible behind it.
-            if (message != null && facingNpc != null) {
+            if (message != null && facingNpc != null && reward == null) {
                 val member = Cast.byId(facingNpc.loveInterestId)
                 Box(
                     Modifier
@@ -364,5 +396,87 @@ private fun TalkButton(enabled: Boolean, onClick: () -> Unit) {
             fontWeight = FontWeight.Bold,
             color = if (enabled) Color.White else MutedStar.copy(alpha = 0.5f),
         )
+    }
+}
+
+/**
+ * The payoff for a moment together: what they said, what it earned, and any face it unlocked.
+ *
+ * A new face is shown *on the character*, immediately, rather than as an icon in a list — the
+ * reward is seeing them look at you differently, so that is what the card shows.
+ */
+@Composable
+private fun RewardCard(reward: Reward, onDismiss: () -> Unit) {
+    val member = Cast.byId(reward.loveInterestId)
+    val accent = Color(member.themeColor)
+
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.72f))
+            .pointerInput(Unit) { detectTapGestures(onTap = { onDismiss() }) },
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.padding(24.dp),
+        ) {
+            if (reward.unlockedExpression != null) {
+                AvatarPortrait(
+                    appearance = CastLooks.of(member.id),
+                    expression = reward.unlockedExpression,
+                    accent = accent,
+                    modifier = Modifier
+                        .fillMaxWidth(0.62f)
+                        .aspectRatio(0.8f)
+                        .clip(RoundedCornerShape(18.dp)),
+                )
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    "New expression",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MutedStar,
+                )
+                Text(
+                    reward.unlockedExpression.label,
+                    style = MaterialTheme.typography.titleLarge,
+                    color = accent,
+                )
+                Text(
+                    reward.unlockedExpression.description,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MutedStar,
+                    textAlign = TextAlign.Center,
+                )
+                Spacer(Modifier.height(14.dp))
+            }
+
+            Text(
+                reward.line,
+                style = MaterialTheme.typography.bodyLarge,
+                textAlign = TextAlign.Center,
+            )
+            Spacer(Modifier.height(10.dp))
+            Text(
+                "+${reward.points} bond" + if (reward.boosted) "  (boosted)" else "",
+                style = MaterialTheme.typography.labelLarge,
+                color = accent,
+            )
+            reward.newRank?.let { rank ->
+                Text(
+                    "${member.name} — ${Bond.titleFor(rank)}",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = DriftGlow,
+                    modifier = Modifier.padding(top = 6.dp),
+                )
+            }
+            Spacer(Modifier.height(16.dp))
+            Text(
+                "tap to continue",
+                style = MaterialTheme.typography.labelSmall,
+                color = MutedStar.copy(alpha = 0.7f),
+                modifier = Modifier.alpha(0.8f),
+            )
+        }
     }
 }

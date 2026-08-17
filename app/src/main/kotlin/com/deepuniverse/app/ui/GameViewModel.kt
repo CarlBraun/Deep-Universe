@@ -12,8 +12,21 @@ import com.deepuniverse.core.character.HairStyle
 import com.deepuniverse.core.character.Preset
 import com.deepuniverse.core.character.PresentationStyle
 import com.deepuniverse.core.character.Pronouns
+import com.deepuniverse.core.character.Expression
+import com.deepuniverse.core.game.CompanionResult
+import com.deepuniverse.core.game.Companionship
+import com.deepuniverse.core.game.activeBoost
 import com.deepuniverse.core.game.GameState
 import com.deepuniverse.core.game.Scene
+import com.deepuniverse.core.game.Stamina
+import com.deepuniverse.core.store.Boost
+import com.deepuniverse.core.store.BoostKind
+import com.deepuniverse.core.store.NoOpPurchaseGateway
+import com.deepuniverse.core.store.PurchaseGateway
+import com.deepuniverse.core.store.PurchaseResult
+import com.deepuniverse.core.store.StoreCatalog
+import com.deepuniverse.core.store.StoreOffer
+import com.deepuniverse.core.store.SupportTier
 import com.deepuniverse.core.game.ScenePlayback
 import com.deepuniverse.core.game.StoryEngine
 import com.deepuniverse.core.photo.AnalysisNote
@@ -40,9 +53,22 @@ sealed interface Screen {
 
     /** The journal: the whole cast and how close you are to each of them. */
     data object Home : Screen
+
+    /** Support the game, and spend Starlight on time-savers. */
+    data object Store : Screen
     data class Route(val loveInterestId: String) : Screen
     data object Story : Screen
 }
+
+/** What the player just earned from a moment together, shown as a card and then dismissed. */
+data class Reward(
+    val loveInterestId: String,
+    val line: String,
+    val points: Int,
+    val boosted: Boolean,
+    val newRank: Int?,
+    val unlockedExpression: Expression?,
+)
 
 /** The photo half of the character creator. */
 data class PhotoState(
@@ -57,7 +83,15 @@ data class PhotoState(
     val error: String? = null,
 )
 
-class GameViewModel(application: Application) : AndroidViewModel(application) {
+class GameViewModel(
+    application: Application,
+    /**
+     * Swapped for a real Play Billing implementation when the game ships. Until then no money can
+     * change hands, and the stub is deliberately obvious so a debug build cannot be mistaken for a
+     * live one.
+     */
+    private val gateway: PurchaseGateway = NoOpPurchaseGateway(),
+) : AndroidViewModel(application) {
 
     private val saveStore = SaveStore(application)
     private val generator = PhotoCharacterGenerator(application)
@@ -83,6 +117,15 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private val _overworldMessage = MutableStateFlow<String?>(null)
     val overworldMessage: StateFlow<String?> = _overworldMessage.asStateFlow()
 
+    private val _reward = MutableStateFlow<Reward?>(null)
+    val reward: StateFlow<Reward?> = _reward.asStateFlow()
+
+    private val _storeMessage = MutableStateFlow<String?>(null)
+    val storeMessage: StateFlow<String?> = _storeMessage.asStateFlow()
+
+    private val _purchasing = MutableStateFlow(false)
+    val purchasing: StateFlow<Boolean> = _purchasing.asStateFlow()
+
     /** Where the player is standing. Lives in [state] so it is part of the save. */
     val worldPosition: StateFlow<WorldPosition>
         get() = _worldPosition
@@ -95,6 +138,20 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 _state.value = loaded
                 _draft.value = loaded.player
                 _worldPosition.value = loaded.world
+            }
+            refreshTimedState()
+            // A purchase that settled while the app was gone must still be delivered; losing what
+            // someone paid for is the one store bug there is no apologising for.
+            for (restored in gateway.restorePurchases()) {
+                _state.update {
+                    it.copy(
+                        wallet = it.wallet.recordPurchase(
+                            restored.tier,
+                            restored.priceUnits,
+                            monthKey(),
+                        ),
+                    )
+                }
             }
             _screen.value = Screen.Title
         }
@@ -137,6 +194,12 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
         is Screen.Overworld -> {
             _screen.value = Screen.Title
+            true
+        }
+
+        is Screen.Store -> {
+            _storeMessage.value = null
+            _screen.value = if (_state.value.characterCreated) Screen.Overworld else Screen.Title
             true
         }
 
@@ -288,13 +351,159 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         if (scene != null) {
             startScene(scene)
         } else {
-            _overworldMessage.value = npc.idleLine
-            persist()
+            // Out of written scenes with this person — spend a moment together instead, which is
+            // what makes the game endless rather than finished.
+            spendMomentWith(npc.loveInterestId)
         }
     }
 
     fun dismissOverworldMessage() {
         _overworldMessage.value = null
+    }
+
+    // ------------------------------------------------------------------ the endless loop
+
+    /** Wall clock in epoch seconds. The only place the game reads real time. */
+    private fun now(): Long = System.currentTimeMillis() / 1000L
+
+    /**
+     * Spends a moment with whoever the player is facing.
+     *
+     * This is the repeatable half of the game: once someone's written scenes are exhausted, time
+     * spent together still moves the bond and still earns faces, forever.
+     */
+    fun spendMomentWith(loveInterestId: String) {
+        when (val result = Companionship.spendMomentWith(_state.value, loveInterestId, now())) {
+            is CompanionResult.Shared -> {
+                _state.value = result.state
+                _reward.value = Reward(
+                    line = result.line,
+                    points = result.pointsGained,
+                    boosted = result.boosted,
+                    newRank = result.newRank,
+                    unlockedExpression = result.unlockedExpression,
+                    loveInterestId = loveInterestId,
+                )
+                persist()
+            }
+
+            is CompanionResult.OutOfMoments -> {
+                _overworldMessage.value = buildString {
+                    append("You're out of moments for now.")
+                    result.secondsUntilNext?.let {
+                        append(" One more in about ${(it / 60) + 1} min.")
+                    }
+                }
+            }
+        }
+    }
+
+    /** Whether a Signal Boost is running right now, for the overworld's ×2 badge. */
+    fun isBoosted(): Boolean =
+        _state.value.activeBoost(BoostKind.AFFECTION_DOUBLE, now()) != null
+
+    fun dismissReward() {
+        _reward.value = null
+    }
+
+    /** Refreshes regenerated moments. Called when the app comes back to the foreground. */
+    fun refreshTimedState() {
+        val refreshed = Stamina.regenerated(_state.value.stamina, now())
+        if (refreshed != _state.value.stamina) {
+            _state.update { it.copy(stamina = refreshed) }
+        }
+    }
+
+    // ------------------------------------------------------------------ store
+
+    fun openStore() {
+        _screen.value = Screen.Store
+    }
+
+    /** The month bucket the spend guard counts against. */
+    private fun monthKey(): String {
+        val calendar = java.util.Calendar.getInstance()
+        return "%04d-%02d".format(calendar.get(java.util.Calendar.YEAR), calendar.get(java.util.Calendar.MONTH) + 1)
+    }
+
+    fun buy(tier: SupportTier) {
+        if (_purchasing.value) return
+
+        val priceUnits = NoOpPurchaseGateway.priceUnitsOf(tier)
+        if (_state.value.wallet.wouldExceedSelfLimit(priceUnits, monthKey())) {
+            _storeMessage.value =
+                "That would go past the monthly limit you set. You can change it below."
+            return
+        }
+
+        _purchasing.value = true
+        viewModelScope.launch {
+            when (val result = gateway.purchase(tier)) {
+                is PurchaseResult.Success -> {
+                    _state.update {
+                        it.copy(
+                            wallet = it.wallet.recordPurchase(
+                                tier = result.tier,
+                                priceUnits = result.priceUnits,
+                                monthKey = monthKey(),
+                            ),
+                        )
+                    }
+                    _storeMessage.value =
+                        "Thank you, genuinely. ${result.tier.totalStarlight} ${StoreCatalog.CURRENCY} added."
+                    persist()
+                }
+
+                PurchaseResult.Cancelled -> Unit
+                is PurchaseResult.Blocked -> _storeMessage.value = result.reason
+                is PurchaseResult.Failed -> _storeMessage.value =
+                    "That didn't go through, and you have not been charged. ${result.reason}"
+            }
+            _purchasing.value = false
+        }
+    }
+
+    /** Spends Starlight on a time-saver. Never on story content. */
+    fun redeem(offer: StoreOffer) {
+        val wallet = _state.value.wallet
+        if (!wallet.canAfford(offer.cost)) {
+            _storeMessage.value = "Not quite enough ${StoreCatalog.CURRENCY} for that yet."
+            return
+        }
+
+        val moment = now()
+        _state.update { state ->
+            val spent = state.copy(wallet = state.wallet.spend(offer.cost))
+            when (offer.id) {
+                "refill_moments" -> spent.copy(stamina = spent.stamina.refilled(moment))
+                "boost_affection" -> spent.withBoost(
+                    Boost(BoostKind.AFFECTION_DOUBLE, moment + 3600),
+                    moment,
+                )
+                "boost_affection_day" -> spent.withBoost(
+                    Boost(BoostKind.AFFECTION_DOUBLE, moment + 86_400),
+                    moment,
+                )
+                else -> spent
+            }
+        }
+        _storeMessage.value = "${offer.title} — done."
+        persist()
+    }
+
+    /** Lets the player cap their own monthly spending. Null clears it. */
+    fun setMonthlyLimit(limitUnits: Int?) {
+        _state.update { it.copy(wallet = it.wallet.copy(selfImposedMonthlyLimit = limitUnits)) }
+        _storeMessage.value = if (limitUnits == null) {
+            "Monthly limit removed."
+        } else {
+            "Monthly limit set."
+        }
+        persist()
+    }
+
+    fun dismissStoreMessage() {
+        _storeMessage.value = null
     }
 
     // ------------------------------------------------------------------ story

@@ -1,7 +1,15 @@
 package com.deepuniverse.app.ui.avatar
 
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
@@ -17,377 +25,782 @@ import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.rotate
 import com.deepuniverse.core.character.AppearanceParam
 import com.deepuniverse.core.character.CharacterAppearance
+import com.deepuniverse.core.character.Expression
+import com.deepuniverse.core.character.ExpressionShape
 import com.deepuniverse.core.character.HairStyle
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.random.Random
 
 /**
- * Draws a character from their [CharacterAppearance], live.
+ * Draws a character portrait from their [CharacterAppearance].
  *
- * ### Why the portrait is drawn rather than composed from art
- * A conventional character creator swaps pre-drawn assets, which means every slider needs an
- * artist. Drawing the face from the parameters directly means all ~30 sliders are continuous and
- * visible from the first build, with no art pipeline — which is exactly what the photo generator
- * needs, since it produces arbitrary values across every axis at once. When real art arrives this
- * renderer becomes the placeholder layer behind it; the parameter model does not change.
+ * ### What this renderer is trying to be
+ * Not a diagram of a face — a portrait somebody would want to look at. The things that actually
+ * make a stylised character read as appealing, in rough order of impact:
  *
- * The drawing is deterministic: the same appearance always produces the same portrait, including
- * freckle placement, so nothing shimmers as the player drags a slider.
+ * 1. **The eyes.** Most of the work is here: a graded iris, a dark limbal ring, a heavy upper lash
+ *    line, a lid shadow and two catchlights at opposing corners. Flat eyes are the single biggest
+ *    reason a drawn face looks dead.
+ * 2. **Light with a direction.** One key light from the upper left, a warm bounce underneath, and a
+ *    rim light along the opposite edge. The rim is what lifts the head off the background and does
+ *    most of the "3D" work without any 3D.
+ * 3. **Hair in masses, not outlines** — a back mass, a front fringe, and a single bright highlight
+ *    band across the crown.
+ * 4. **A background that belongs to the character**, tinted to their own colours, so the portrait
+ *    reads as composed rather than cut out.
+ *
+ * Everything is still parametric, so all of it responds to the sliders and to whatever the photo
+ * generator produced — and [expression] bends the same face into the collectable ones.
  */
 @Composable
 fun AvatarPortrait(
     appearance: CharacterAppearance,
     modifier: Modifier = Modifier,
+    expression: Expression = Expression.NEUTRAL,
     showBackdrop: Boolean = true,
+    animated: Boolean = true,
+    /** Tints the backdrop. Defaults to the character's own hair colour. */
+    accent: Color? = null,
 ) {
+    val shape = ExpressionShape.of(expression)
+
+    // Idle motion. A completely still portrait reads as a picture; a breathing, blinking one reads
+    // as somebody waiting for you to say something.
+    val transition = rememberInfiniteTransition(label = "idle")
+    val breathe by if (animated) {
+        transition.animateFloat(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(3400, easing = FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse,
+            ),
+            label = "breathe",
+        )
+    } else {
+        animateFloatAsState(0.5f, label = "breathe")
+    }
+
+    val blinkPhase by if (animated) {
+        transition.animateFloat(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(4600, easing = LinearEasing),
+                repeatMode = RepeatMode.Restart,
+            ),
+            label = "blink",
+        )
+    } else {
+        animateFloatAsState(0f, label = "blink")
+    }
+
+    val shimmer by if (animated) {
+        transition.animateFloat(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(6000, easing = LinearEasing),
+                repeatMode = RepeatMode.Restart,
+            ),
+            label = "shimmer",
+        )
+    } else {
+        animateFloatAsState(0f, label = "shimmer")
+    }
+
+    // A blink is short and sudden: shut for a sliver at the end of each cycle.
+    val blink = when {
+        shape.eyesClosed -> 1f
+        blinkPhase > 0.965f -> ((blinkPhase - 0.965f) / 0.0175f).coerceIn(0f, 1f)
+        blinkPhase > 0.9825f -> (1f - (blinkPhase - 0.9825f) / 0.0175f).coerceIn(0f, 1f)
+        else -> 0f
+    }
+
     Canvas(modifier = modifier) {
-        drawCharacter(appearance, showBackdrop)
+        drawPortrait(
+            a = appearance,
+            shape = shape,
+            blink = blink,
+            breathe = breathe,
+            shimmer = shimmer,
+            accent = accent ?: Color(appearance.hairColor),
+            showBackdrop = showBackdrop,
+        )
     }
 }
 
-// --------------------------------------------------------------------------- drawing
+// --------------------------------------------------------------------------- layout
 
-private fun DrawScope.drawCharacter(a: CharacterAppearance, showBackdrop: Boolean) {
+private class Face(
+    val cx: Float,
+    val top: Float,
+    val chinY: Float,
+    val cheekHalf: Float,
+    val jawHalf: Float,
+    val chinHalf: Float,
+    val cheekY: Float,
+    val jawY: Float,
+    val eyeY: Float,
+    val eyeOffset: Float,
+    val eyeW: Float,
+    val eyeH: Float,
+    val tilt: Float,
+) {
+    val height: Float get() = chinY - top
+}
+
+private fun DrawScope.drawPortrait(
+    a: CharacterAppearance,
+    shape: ExpressionShape,
+    blink: Float,
+    breathe: Float,
+    shimmer: Float,
+    accent: Color,
+    showBackdrop: Boolean,
+) {
     val w = size.width
     val h = size.height
-    val cx = w / 2f
 
     val skin = Color(a.skinColor)
     val hair = Color(a.hairColor)
     val eyeColor = Color(a.eyeColor)
 
-    // ---- proportions -------------------------------------------------------
-    val faceH = h * mix(0.44f, 0.54f, a[AppearanceParam.FACE_LENGTH])
-    val faceW = w * mix(0.42f, 0.56f, a[AppearanceParam.FACE_WIDTH])
-    val faceTop = h * 0.13f
-    val chinY = faceTop + faceH
+    if (showBackdrop) drawBackdrop(accent, shimmer)
+
+    // Breathing lifts the whole figure by a hair and widens the chest slightly.
+    val lift = (breathe - 0.5f) * h * 0.006f
+
+    val faceH = h * mix(0.40f, 0.48f, a[AppearanceParam.FACE_LENGTH])
+    val faceW = w * mix(0.40f, 0.52f, a[AppearanceParam.FACE_WIDTH])
+    val top = h * 0.155f + lift
+    val chinY = top + faceH
     val cheekHalf = faceW / 2f
-    val jawHalf = cheekHalf * mix(0.60f, 0.94f, a[AppearanceParam.JAW_WIDTH])
-    val chinHalf = jawHalf * mix(0.72f, 0.34f, a[AppearanceParam.JAW_SHARPNESS])
-    val cheekY = faceTop + faceH * mix(0.44f, 0.34f, a[AppearanceParam.CHEEKBONES])
-    val jawY = faceTop + faceH * mix(0.68f, 0.76f, a[AppearanceParam.CHIN_LENGTH])
+    val jawHalf = cheekHalf * mix(0.58f, 0.90f, a[AppearanceParam.JAW_WIDTH])
+    val chinHalf = jawHalf * mix(0.66f, 0.30f, a[AppearanceParam.JAW_SHARPNESS])
 
-    if (showBackdrop) drawBackdrop()
+    val face = Face(
+        cx = w / 2f,
+        top = top,
+        chinY = chinY,
+        cheekHalf = cheekHalf,
+        jawHalf = jawHalf,
+        chinHalf = chinHalf,
+        cheekY = top + faceH * mix(0.46f, 0.36f, a[AppearanceParam.CHEEKBONES]),
+        jawY = top + faceH * mix(0.66f, 0.75f, a[AppearanceParam.CHIN_LENGTH]),
+        eyeY = top + faceH * mix(0.56f, 0.46f, a[AppearanceParam.EYE_HEIGHT]),
+        eyeOffset = cheekHalf * mix(0.36f, 0.54f, a[AppearanceParam.EYE_SPACING]),
+        // Deliberately generous: large eyes are most of what makes a stylised face appealing.
+        eyeW = faceW * mix(0.185f, 0.275f, a[AppearanceParam.EYE_SIZE]),
+        eyeH = 0f,
+        tilt = mix(-8f, 14f, (a[AppearanceParam.EYE_TILT] + shape.eyeTilt).coerceIn(0f, 1f)),
+    )
+    val openness = (a[AppearanceParam.EYE_OPENNESS] + shape.eyeOpenness).coerceIn(0f, 1f)
+    val eyeH = face.eyeW * mix(0.52f, 0.96f, openness) * (1f - blink * 0.94f)
 
-    val facePath = facePath(cx, faceTop, chinY, cheekHalf, jawHalf, chinHalf, cheekY, jawY, a)
+    // The whole head tilts with the expression, which reads as personality more than any single
+    // feature does.
+    rotate(degrees = shape.headTilt, pivot = Offset(face.cx, chinY)) {
+        val facePath = facePath(face)
 
-    // ---- hair behind the head ---------------------------------------------
-    drawBackHair(a, hair, cx, faceTop, chinY, cheekHalf)
+        drawBackHair(a, hair, face, shimmer)
+        drawBody(a, skin, hair, face, w, h, breathe)
+        drawEars(skin, face)
 
-    // ---- body --------------------------------------------------------------
-    drawShoulders(a, skin, hair, cx, chinY, h, w)
-
-    // ---- head --------------------------------------------------------------
-    drawEars(skin, cx, cheekHalf, cheekY, faceH)
-    drawPath(facePath, skin)
-
-    // Soft shading along the jaw, so the silhouette reads as a head rather than a flat shape.
-    clipPath(facePath) {
-        drawRect(
-            brush = Brush.verticalGradient(
-                0f to Color.Transparent,
-                0.55f to Color.Transparent,
-                1f to skin.darken(0.86f).copy(alpha = 0.55f),
-            ),
-            topLeft = Offset(cx - cheekHalf * 1.3f, faceTop),
-            size = Size(cheekHalf * 2.6f, chinY - faceTop),
-        )
-        // Dewy highlight across the cheekbones and brow.
-        val glow = a[AppearanceParam.SKIN_GLOW]
-        if (glow > 0.05f) {
-            drawCircle(
-                brush = Brush.radialGradient(
-                    listOf(Color.White.copy(alpha = 0.16f * glow), Color.Transparent),
-                    center = Offset(cx, faceTop + faceH * 0.30f),
-                    radius = cheekHalf * 1.1f,
+        // ---- head, lit from the upper left ----------------------------------
+        drawPath(facePath, skin)
+        clipPath(facePath) {
+            // Core shadow under the jaw and along the right side.
+            drawRect(
+                brush = Brush.verticalGradient(
+                    0.45f to Color.Transparent,
+                    1f to skin.shade(0.74f).copy(alpha = 0.75f),
                 ),
-                radius = cheekHalf * 1.1f,
-                center = Offset(cx, faceTop + faceH * 0.30f),
+                topLeft = Offset(face.cx - cheekHalf * 1.4f, face.top),
+                size = Size(cheekHalf * 2.8f, face.height),
             )
+            drawRect(
+                brush = Brush.horizontalGradient(
+                    0.55f to Color.Transparent,
+                    1f to skin.shade(0.80f).copy(alpha = 0.55f),
+                ),
+                topLeft = Offset(face.cx - cheekHalf, face.top),
+                size = Size(cheekHalf * 2f, face.height),
+            )
+            // Key light on the forehead and left cheek.
+            softGlow(
+                centre = Offset(face.cx - cheekHalf * 0.35f, face.top + faceH * 0.26f),
+                radius = cheekHalf * 1.15f,
+                color = Color.White.copy(alpha = 0.13f + a[AppearanceParam.SKIN_GLOW] * 0.10f),
+            )
+            drawBlush(a, shape, face, faceH)
+            drawFreckles(a, face, faceH, skin)
+            drawNose(a, face, skin)
         }
+
+        // Rim light: a bright sliver down the shadowed edge. This is what makes the head feel
+        // like a solid object rather than a sticker.
+        drawPath(
+            facePath,
+            brush = Brush.linearGradient(
+                colors = listOf(Color.Transparent, accent.lighten(1.9f).copy(alpha = 0.55f)),
+                start = Offset(face.cx, face.top),
+                end = Offset(face.cx + cheekHalf * 1.5f, chinY),
+            ),
+            style = Stroke(width = faceW * 0.018f),
+        )
+
+        drawMouth(a, shape, face, skin)
+
+        for (side in listOf(-1f, 1f)) {
+            drawEye(a, shape, face, eyeH, side, eyeColor, blink)
+            drawBrow(a, shape, face, eyeH, side, hair)
+        }
+
+        drawFrontHair(a, hair, face, shimmer)
     }
 
-    // ---- features ----------------------------------------------------------
-    val eyeY = faceTop + faceH * mix(0.54f, 0.44f, a[AppearanceParam.EYE_HEIGHT])
-    val eyeOffset = cheekHalf * mix(0.34f, 0.54f, a[AppearanceParam.EYE_SPACING])
-    val eyeW = faceW * mix(0.135f, 0.215f, a[AppearanceParam.EYE_SIZE])
-    val eyeH = eyeW * mix(0.34f, 0.78f, a[AppearanceParam.EYE_OPENNESS])
-    val tilt = mix(-9f, 13f, a[AppearanceParam.EYE_TILT])
-
-    drawBlush(a, cx, eyeY, faceH, cheekHalf, facePath)
-    drawFreckles(a, cx, cheekY, faceH, cheekHalf, facePath, skin)
-
-    drawNose(a, cx, eyeY, chinY, faceW, skin)
-    drawMouth(a, cx, eyeY, chinY, faceW, skin)
-
-    for (side in listOf(-1f, 1f)) {
-        drawEye(a, cx + side * eyeOffset, eyeY, eyeW, eyeH, tilt * side, side, eyeColor)
-        drawBrow(a, cx + side * eyeOffset, eyeY, eyeW, eyeH, side, hair)
-    }
-
-    // ---- hair in front of the head ----------------------------------------
-    drawFrontHair(a, hair, cx, faceTop, chinY, cheekHalf)
+    if (showBackdrop) drawVignette()
 }
 
-/** A soft nebula behind the character, so the portrait never floats on flat black. */
-private fun DrawScope.drawBackdrop() {
+// --------------------------------------------------------------------------- background
+
+private fun DrawScope.drawBackdrop(accent: Color, shimmer: Float) {
     drawRect(
         Brush.verticalGradient(
-            listOf(Color(0xFF171233), Color(0xFF0B0918)),
+            listOf(
+                accent.shade(0.35f).mix(Color(0xFF1A1430), 0.55f),
+                Color(0xFF0A0814),
+            ),
         ),
     )
-    drawCircle(
-        brush = Brush.radialGradient(
-            listOf(Color(0x557B5CC4), Color.Transparent),
-            center = Offset(size.width / 2f, size.height * 0.38f),
-            radius = size.width * 0.62f,
-        ),
-        radius = size.width * 0.62f,
-        center = Offset(size.width / 2f, size.height * 0.38f),
+    // A broad glow behind the head, in the character's own colour.
+    softGlow(
+        centre = Offset(size.width / 2f, size.height * 0.34f),
+        radius = size.width * 0.72f,
+        color = accent.copy(alpha = 0.30f),
     )
-    // A fixed star field — seeded so it does not twinkle on every recomposition.
-    val random = Random(7)
-    repeat(40) {
-        val x = random.nextFloat() * size.width
-        val y = random.nextFloat() * size.height
+
+    // Drifting bokeh. Seeded, so it is stable, with only its brightness animated.
+    val random = Random(11)
+    repeat(26) { i ->
+        val bx = random.nextFloat() * size.width
+        val by = random.nextFloat() * size.height
+        val r = size.width * (0.004f + random.nextFloat() * 0.020f)
+        val phase = (shimmer + i * 0.13f) % 1f
+        val pulse = 0.25f + 0.75f * (1f - kotlin.math.abs(phase - 0.5f) * 2f)
         drawCircle(
-            color = Color.White.copy(alpha = 0.10f + random.nextFloat() * 0.35f),
-            radius = size.width * (0.001f + random.nextFloat() * 0.0035f),
-            center = Offset(x, y),
+            color = Color.White.copy(alpha = 0.05f + pulse * 0.10f),
+            radius = r,
+            center = Offset(bx, by),
         )
     }
 }
 
-/**
- * The face outline: a closed path from the crown, out past the temple and cheekbone, in along the
- * jaw and down to the chin, mirrored.
- */
-private fun facePath(
-    cx: Float,
-    faceTop: Float,
-    chinY: Float,
-    cheekHalf: Float,
-    jawHalf: Float,
-    chinHalf: Float,
-    cheekY: Float,
-    jawY: Float,
-    a: CharacterAppearance,
-): Path {
-    val templeHalf = cheekHalf * 0.93f
-    val templeY = faceTop + (cheekY - faceTop) * 0.35f
-    // A sharper jaw meets the chin in a tighter corner.
-    val jawTension = mix(0.55f, 0.16f, a[AppearanceParam.JAW_SHARPNESS])
+private fun DrawScope.drawVignette() {
+    drawRect(
+        brush = Brush.radialGradient(
+            colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.55f)),
+            center = Offset(size.width / 2f, size.height * 0.42f),
+            radius = size.width * 0.95f,
+        ),
+    )
+}
+
+// --------------------------------------------------------------------------- head
+
+private fun facePath(f: Face): Path {
+    val templeHalf = f.cheekHalf * 0.95f
+    val templeY = f.top + (f.cheekY - f.top) * 0.32f
+    val jawTension = 0.42f
 
     return Path().apply {
-        moveTo(cx, faceTop)
-        // Crown to left temple.
+        moveTo(f.cx, f.top)
         cubicTo(
-            cx - cheekHalf * 0.72f, faceTop,
-            cx - templeHalf, templeY - (cheekY - faceTop) * 0.25f,
-            cx - templeHalf, templeY,
-        )
-        // Temple to cheekbone.
-        cubicTo(
-            cx - cheekHalf, templeY + (cheekY - templeY) * 0.5f,
-            cx - cheekHalf, cheekY - (cheekY - templeY) * 0.15f,
-            cx - cheekHalf, cheekY,
-        )
-        // Cheekbone down to the jaw corner.
-        cubicTo(
-            cx - cheekHalf, cheekY + (jawY - cheekY) * 0.55f,
-            cx - jawHalf * 1.04f, jawY - (jawY - cheekY) * 0.18f,
-            cx - jawHalf, jawY,
-        )
-        // Jaw corner to chin.
-        cubicTo(
-            cx - jawHalf, jawY + (chinY - jawY) * jawTension,
-            cx - chinHalf, chinY - (chinY - jawY) * 0.12f,
-            cx, chinY,
-        )
-        // Mirror back up the right side.
-        cubicTo(
-            cx + chinHalf, chinY - (chinY - jawY) * 0.12f,
-            cx + jawHalf, jawY + (chinY - jawY) * jawTension,
-            cx + jawHalf, jawY,
+            f.cx - f.cheekHalf * 0.70f, f.top,
+            f.cx - templeHalf, templeY - (f.cheekY - f.top) * 0.30f,
+            f.cx - templeHalf, templeY,
         )
         cubicTo(
-            cx + jawHalf * 1.04f, jawY - (jawY - cheekY) * 0.18f,
-            cx + cheekHalf, cheekY + (jawY - cheekY) * 0.55f,
-            cx + cheekHalf, cheekY,
+            f.cx - f.cheekHalf, templeY + (f.cheekY - templeY) * 0.5f,
+            f.cx - f.cheekHalf, f.cheekY - (f.cheekY - templeY) * 0.1f,
+            f.cx - f.cheekHalf, f.cheekY,
         )
         cubicTo(
-            cx + cheekHalf, cheekY - (cheekY - templeY) * 0.15f,
-            cx + cheekHalf, templeY + (cheekY - templeY) * 0.5f,
-            cx + templeHalf, templeY,
+            f.cx - f.cheekHalf, f.cheekY + (f.jawY - f.cheekY) * 0.6f,
+            f.cx - f.jawHalf * 1.02f, f.jawY - (f.jawY - f.cheekY) * 0.15f,
+            f.cx - f.jawHalf, f.jawY,
         )
         cubicTo(
-            cx + templeHalf, templeY - (cheekY - faceTop) * 0.25f,
-            cx + cheekHalf * 0.72f, faceTop,
-            cx, faceTop,
+            f.cx - f.jawHalf, f.jawY + (f.chinY - f.jawY) * jawTension,
+            f.cx - f.chinHalf, f.chinY - (f.chinY - f.jawY) * 0.10f,
+            f.cx, f.chinY,
+        )
+        cubicTo(
+            f.cx + f.chinHalf, f.chinY - (f.chinY - f.jawY) * 0.10f,
+            f.cx + f.jawHalf, f.jawY + (f.chinY - f.jawY) * jawTension,
+            f.cx + f.jawHalf, f.jawY,
+        )
+        cubicTo(
+            f.cx + f.jawHalf * 1.02f, f.jawY - (f.jawY - f.cheekY) * 0.15f,
+            f.cx + f.cheekHalf, f.cheekY + (f.jawY - f.cheekY) * 0.6f,
+            f.cx + f.cheekHalf, f.cheekY,
+        )
+        cubicTo(
+            f.cx + f.cheekHalf, f.cheekY - (f.cheekY - templeY) * 0.1f,
+            f.cx + f.cheekHalf, templeY + (f.cheekY - templeY) * 0.5f,
+            f.cx + templeHalf, templeY,
+        )
+        cubicTo(
+            f.cx + templeHalf, templeY - (f.cheekY - f.top) * 0.30f,
+            f.cx + f.cheekHalf * 0.70f, f.top,
+            f.cx, f.top,
         )
         close()
     }
 }
 
-private fun DrawScope.drawEars(skin: Color, cx: Float, cheekHalf: Float, cheekY: Float, faceH: Float) {
-    val earH = faceH * 0.17f
+private fun DrawScope.drawEars(skin: Color, f: Face) {
+    val earH = f.height * 0.15f
     for (side in listOf(-1f, 1f)) {
         drawOval(
-            color = skin.darken(0.95f),
-            topLeft = Offset(cx + side * cheekHalf - earH * 0.28f, cheekY - earH * 0.2f),
-            size = Size(earH * 0.56f, earH),
+            color = skin.shade(0.93f),
+            topLeft = Offset(f.cx + side * f.cheekHalf - earH * 0.26f, f.cheekY - earH * 0.30f),
+            size = Size(earH * 0.52f, earH),
         )
     }
 }
 
-private fun DrawScope.drawShoulders(
+private fun DrawScope.drawBody(
     a: CharacterAppearance,
     skin: Color,
     hair: Color,
-    cx: Float,
-    chinY: Float,
-    h: Float,
+    f: Face,
     w: Float,
+    h: Float,
+    breathe: Float,
 ) {
-    val neckHalf = w * mix(0.055f, 0.085f, a[AppearanceParam.BUILD])
-    val neckBottom = chinY + h * 0.075f
+    val neckHalf = w * mix(0.052f, 0.082f, a[AppearanceParam.BUILD])
+    val neckBottom = f.chinY + h * 0.070f
+
     drawRect(
-        color = skin.darken(0.90f),
-        topLeft = Offset(cx - neckHalf, chinY - h * 0.01f),
-        size = Size(neckHalf * 2f, neckBottom - chinY + h * 0.02f),
+        color = skin.shade(0.86f),
+        topLeft = Offset(f.cx - neckHalf, f.chinY - h * 0.02f),
+        size = Size(neckHalf * 2f, neckBottom - f.chinY + h * 0.03f),
+    )
+    // Shadow the neck casts under the jaw — cheap, and it seats the head on the body.
+    drawOval(
+        brush = Brush.verticalGradient(
+            listOf(Color.Black.copy(alpha = 0.34f), Color.Transparent),
+        ),
+        topLeft = Offset(f.cx - neckHalf * 1.5f, f.chinY - h * 0.012f),
+        size = Size(neckHalf * 3f, h * 0.055f),
     )
 
-    val shoulderHalf = w * mix(0.30f, 0.46f, a[AppearanceParam.SHOULDER_WIDTH])
-    val outfit = hair.darken(0.45f).mixWith(Color(0xFF221C3D), 0.6f)
+    val shoulderHalf = w * mix(0.32f, 0.50f, a[AppearanceParam.SHOULDER_WIDTH]) *
+        (1f + (breathe - 0.5f) * 0.012f)
+    val outfit = hair.shade(0.42f).mix(Color(0xFF1E1932), 0.60f)
+
     val body = Path().apply {
-        moveTo(cx - neckHalf * 1.4f, neckBottom)
+        moveTo(f.cx - neckHalf * 1.35f, neckBottom)
         cubicTo(
-            cx - shoulderHalf * 0.75f, neckBottom + h * 0.012f,
-            cx - shoulderHalf, neckBottom + h * 0.045f,
-            cx - shoulderHalf, h,
+            f.cx - shoulderHalf * 0.72f, neckBottom + h * 0.010f,
+            f.cx - shoulderHalf, neckBottom + h * 0.048f,
+            f.cx - shoulderHalf, h,
         )
-        lineTo(cx + shoulderHalf, h)
+        lineTo(f.cx + shoulderHalf, h)
         cubicTo(
-            cx + shoulderHalf, neckBottom + h * 0.045f,
-            cx + shoulderHalf * 0.75f, neckBottom + h * 0.012f,
-            cx + neckHalf * 1.4f, neckBottom,
+            f.cx + shoulderHalf, neckBottom + h * 0.048f,
+            f.cx + shoulderHalf * 0.72f, neckBottom + h * 0.010f,
+            f.cx + neckHalf * 1.35f, neckBottom,
         )
         close()
     }
     drawPath(body, outfit)
-    drawPath(body, outfit.lighten(1.25f), style = Stroke(width = w * 0.006f))
+    clipPath(body) {
+        drawRect(
+            brush = Brush.horizontalGradient(
+                0f to Color.White.copy(alpha = 0.10f),
+                0.5f to Color.Transparent,
+                1f to Color.Black.copy(alpha = 0.22f),
+            ),
+            topLeft = Offset(f.cx - shoulderHalf, neckBottom),
+            size = Size(shoulderHalf * 2f, h - neckBottom),
+        )
+    }
+    drawPath(body, outfit.lighten(1.45f).copy(alpha = 0.6f), style = Stroke(width = w * 0.005f))
 }
+
+// --------------------------------------------------------------------------- eyes
 
 private fun DrawScope.drawEye(
     a: CharacterAppearance,
-    cx: Float,
-    cy: Float,
-    eyeW: Float,
+    shape: ExpressionShape,
+    f: Face,
     eyeH: Float,
-    tiltDeg: Float,
     side: Float,
     irisColor: Color,
+    blink: Float,
 ) {
-    rotate(degrees = tiltDeg, pivot = Offset(cx, cy)) {
-        val halfW = eyeW / 2f
-        val halfH = eyeH / 2f
+    val cx = f.cx + side * f.eyeOffset
+    val cy = f.eyeY
+    val halfW = f.eyeW / 2f
+    val halfH = eyeH / 2f
+    val lash = a[AppearanceParam.LASH_LENGTH]
+    val makeup = a[AppearanceParam.EYE_MAKEUP]
+    val lashWidth = f.eyeW * (0.045f + lash * 0.045f + makeup * 0.030f)
 
-        // Almond outline: upper lid arches higher than the lower lid drops.
+    rotate(degrees = f.tilt * side, pivot = Offset(cx, cy)) {
+
+        // Shut: a single curved lash line, which reads far better than a squashed eye.
+        if (blink > 0.85f) {
+            val closed = Path().apply {
+                moveTo(cx - halfW, cy)
+                cubicTo(
+                    cx - halfW * 0.4f, cy + f.eyeW * 0.16f,
+                    cx + halfW * 0.4f, cy + f.eyeW * 0.16f,
+                    cx + halfW, cy - f.eyeW * 0.02f,
+                )
+            }
+            drawPath(
+                closed,
+                color = Color(0xFF1B1424),
+                style = Stroke(width = lashWidth * 1.15f, cap = StrokeCap.Round),
+            )
+            return@rotate
+        }
+
         val eye = Path().apply {
             moveTo(cx - halfW, cy)
             cubicTo(
-                cx - halfW * 0.45f, cy - halfH * 1.25f,
-                cx + halfW * 0.45f, cy - halfH * 1.15f,
-                cx + halfW, cy,
+                cx - halfW * 0.48f, cy - halfH * 1.32f,
+                cx + halfW * 0.42f, cy - halfH * 1.22f,
+                cx + halfW, cy - halfH * 0.08f,
             )
             cubicTo(
-                cx + halfW * 0.45f, cy + halfH * 0.95f,
-                cx - halfW * 0.45f, cy + halfH * 1.0f,
+                cx + halfW * 0.45f, cy + halfH * 1.05f,
+                cx - halfW * 0.45f, cy + halfH * 1.10f,
                 cx - halfW, cy,
             )
             close()
         }
 
-        drawPath(eye, Color(0xFFF7F3FA))
+        // Sclera, slightly shaded rather than pure white.
+        drawPath(eye, Color(0xFFF6F2FA))
 
         clipPath(eye) {
-            val irisR = min(halfW * 0.62f, halfH * 1.25f)
-            val irisCentre = Offset(cx, cy - halfH * 0.05f)
-            drawCircle(irisColor, radius = irisR, center = irisCentre)
+            val irisR = min(halfW * 0.82f, halfH * 1.45f)
+            val centre = Offset(cx, cy - halfH * 0.04f)
+
+            // Iris: dark at the rim, luminous at the bottom — the classic anime read.
+            drawCircle(irisColor.shade(0.72f), radius = irisR, center = centre)
             drawCircle(
-                brush = Brush.radialGradient(
-                    listOf(Color.Transparent, irisColor.darken(0.55f)),
-                    center = irisCentre,
-                    radius = irisR,
+                brush = Brush.verticalGradient(
+                    colors = listOf(irisColor.shade(0.55f), irisColor.lighten(1.45f)),
+                    startY = centre.y - irisR,
+                    endY = centre.y + irisR,
                 ),
-                radius = irisR,
-                center = irisCentre,
+                radius = irisR * 0.94f,
+                center = centre,
             )
-            drawCircle(Color(0xFF120E1C), radius = irisR * 0.42f, center = irisCentre)
+            // Limbal ring.
             drawCircle(
-                Color.White.copy(alpha = 0.9f),
-                radius = irisR * 0.22f,
-                center = Offset(irisCentre.x - irisR * 0.33f, irisCentre.y - irisR * 0.36f),
+                color = irisColor.shade(0.35f),
+                radius = irisR * 0.97f,
+                center = centre,
+                style = Stroke(width = irisR * 0.16f),
+            )
+            // A brighter pool low in the iris, where light bounces through.
+            drawOval(
+                brush = Brush.verticalGradient(
+                    listOf(Color.Transparent, irisColor.lighten(2.1f).copy(alpha = 0.85f)),
+                ),
+                topLeft = Offset(centre.x - irisR * 0.72f, centre.y - irisR * 0.1f),
+                size = Size(irisR * 1.44f, irisR * 1.05f),
+            )
+            drawCircle(Color(0xFF120D1B), radius = irisR * 0.40f, center = centre)
+
+            // Catchlights at opposing corners: the detail that makes eyes look wet.
+            drawCircle(
+                Color.White.copy(alpha = 0.95f),
+                radius = irisR * 0.30f,
+                center = Offset(centre.x - irisR * 0.34f, centre.y - irisR * 0.40f),
             )
             drawCircle(
-                Color.White.copy(alpha = 0.45f),
-                radius = irisR * 0.11f,
-                center = Offset(irisCentre.x + irisR * 0.30f, irisCentre.y + irisR * 0.28f),
+                Color.White.copy(alpha = 0.55f),
+                radius = irisR * 0.14f,
+                center = Offset(centre.x + irisR * 0.36f, centre.y + irisR * 0.34f),
             )
-            // Upper lid shadow.
+            if (shape.sparkle > 0.01f) {
+                drawCircle(
+                    Color.White.copy(alpha = 0.75f * shape.sparkle),
+                    radius = irisR * 0.11f,
+                    center = Offset(centre.x + irisR * 0.10f, centre.y - irisR * 0.55f),
+                )
+            }
+
+            // Shadow cast by the upper lid.
             drawRect(
                 brush = Brush.verticalGradient(
-                    listOf(Color.Black.copy(alpha = 0.30f), Color.Transparent),
+                    listOf(Color.Black.copy(alpha = 0.38f), Color.Transparent),
                 ),
-                topLeft = Offset(cx - halfW, cy - halfH * 1.3f),
-                size = Size(eyeW, halfH * 1.1f),
+                topLeft = Offset(cx - halfW, cy - halfH * 1.35f),
+                size = Size(f.eyeW, halfH * 1.15f),
             )
         }
 
-        // Lash line: heavier on the outer half, which is what reads as "eyeliner".
-        val lash = a[AppearanceParam.LASH_LENGTH]
-        val makeup = a[AppearanceParam.EYE_MAKEUP]
-        val lashWidth = eyeH * (0.10f + lash * 0.16f + makeup * 0.10f)
+        // Upper lash line, heavier towards the outer corner.
         val upperLid = Path().apply {
             moveTo(cx - halfW, cy)
             cubicTo(
-                cx - halfW * 0.45f, cy - halfH * 1.25f,
-                cx + halfW * 0.45f, cy - halfH * 1.15f,
-                cx + halfW, cy,
+                cx - halfW * 0.48f, cy - halfH * 1.32f,
+                cx + halfW * 0.42f, cy - halfH * 1.22f,
+                cx + halfW, cy - halfH * 0.08f,
             )
         }
         drawPath(
             upperLid,
-            color = Color(0xFF1A1426),
+            color = Color(0xFF1B1424),
             style = Stroke(width = lashWidth, cap = StrokeCap.Round),
         )
+        // Lower lash line, much lighter — a full outline makes eyes look like buttons.
+        val lowerLid = Path().apply {
+            moveTo(cx - halfW * 0.75f, cy + halfH * 0.72f)
+            quadraticTo(cx, cy + halfH * 1.05f, cx + halfW * 0.85f, cy + halfH * 0.35f)
+        }
+        drawPath(
+            lowerLid,
+            color = Color(0xFF3A2C42).copy(alpha = 0.75f),
+            style = Stroke(width = lashWidth * 0.36f, cap = StrokeCap.Round),
+        )
 
-        if (makeup > 0.05f) {
-            // Winged liner, flicking away from the nose.
-            val wingLength = halfW * 0.42f * makeup
+        // Crease above the lid.
+        val crease = Path().apply {
+            moveTo(cx - halfW * 0.8f, cy - halfH * 1.30f)
+            quadraticTo(cx, cy - halfH * 1.85f, cx + halfW * 0.9f, cy - halfH * 0.9f)
+        }
+        drawPath(
+            crease,
+            color = Color(0xFF6B5568).copy(alpha = 0.35f),
+            style = Stroke(width = lashWidth * 0.28f, cap = StrokeCap.Round),
+        )
+
+        // Outer lashes and liner wing.
+        if (lash > 0.25f || makeup > 0.05f) {
+            val wing = halfW * (0.20f + makeup * 0.38f)
             drawLine(
-                color = Color(0xFF1A1426),
-                start = Offset(cx + side * halfW, cy),
-                end = Offset(cx + side * (halfW + wingLength), cy - halfH * 0.55f * makeup),
-                strokeWidth = lashWidth * 0.8f,
+                color = Color(0xFF1B1424),
+                start = Offset(cx + side * halfW * 0.92f, cy - halfH * 0.12f),
+                end = Offset(cx + side * (halfW + wing), cy - halfH * (0.55f + makeup * 0.5f)),
+                strokeWidth = lashWidth * 0.85f,
                 cap = StrokeCap.Round,
             )
-        }
-        if (lash > 0.35f) {
-            // A few individual lashes at the outer corner.
             repeat(3) { i ->
-                val t = 0.55f + i * 0.15f
-                val x = cx + side * (halfW * t)
-                val yOnLid = cy - halfH * (1.0f - (t - 0.55f) * 1.6f)
+                val t = 0.42f + i * 0.20f
+                val lx = cx + side * halfW * t
+                val ly = cy - halfH * (1.28f - (t - 0.42f) * 0.9f)
                 drawLine(
-                    color = Color(0xFF1A1426),
-                    start = Offset(x, yOnLid),
+                    color = Color(0xFF1B1424),
+                    start = Offset(lx, ly),
                     end = Offset(
-                        x + side * halfW * 0.16f * lash,
-                        yOnLid - halfH * 0.45f * lash,
+                        lx + side * halfW * 0.20f * max(lash, 0.35f),
+                        ly - halfH * 0.55f * max(lash, 0.35f),
                     ),
                     strokeWidth = lashWidth * 0.5f,
+                    cap = StrokeCap.Round,
+                )
+            }
+        }
+
+        if (shape.tears > 0.01f) {
+            drawCircle(
+                color = Color(0xFFBFE2FF).copy(alpha = 0.85f * shape.tears),
+                radius = halfH * 0.30f,
+                center = Offset(cx - side * halfW * 0.55f, cy + halfH * 0.95f),
+            )
+        }
+    }
+}
+
+private fun DrawScope.drawBrow(
+    a: CharacterAppearance,
+    shape: ExpressionShape,
+    f: Face,
+    eyeH: Float,
+    side: Float,
+    hair: Color,
+) {
+    val height = (a[AppearanceParam.BROW_HEIGHT] + shape.browHeight).coerceIn(0f, 1f)
+    val angle = (a[AppearanceParam.BROW_ANGLE] + shape.browAngle).coerceIn(0f, 1f)
+    val cx = f.cx + side * f.eyeOffset
+    val gap = f.eyeW * mix(0.30f, 0.62f, height)
+    val browY = f.eyeY - eyeH * 0.7f - gap
+    val thickness = f.eyeW * mix(0.055f, 0.135f, a[AppearanceParam.BROW_THICKNESS])
+    val arch = f.eyeW * mix(-0.03f, 0.22f, angle)
+    val halfW = f.eyeW * 0.56f
+
+    val innerX = cx - side * halfW * 0.9f
+    val outerX = cx + side * halfW * 1.08f
+    val peakX = cx + side * halfW * 0.28f
+
+    val brow = Path().apply {
+        moveTo(innerX, browY + thickness * 0.55f)
+        quadraticTo(peakX, browY - arch - thickness * 0.15f, outerX, browY - arch * 0.42f)
+        quadraticTo(peakX, browY - arch + thickness * 0.95f, innerX, browY + thickness * 0.55f)
+        close()
+    }
+    drawPath(brow, hair.shade(0.78f))
+    // A softer echo above, so brows read as hair rather than as stickers.
+    drawPath(
+        brow,
+        color = hair.shade(0.60f).copy(alpha = 0.5f),
+        style = Stroke(width = thickness * 0.18f),
+    )
+}
+
+// --------------------------------------------------------------------------- nose and mouth
+
+private fun DrawScope.drawNose(a: CharacterAppearance, f: Face, skin: Color) {
+    val length = (f.chinY - f.eyeY) * mix(0.32f, 0.50f, a[AppearanceParam.NOSE_LENGTH])
+    val tipY = f.eyeY + length
+    val halfW = f.cheekHalf * mix(0.10f, 0.19f, a[AppearanceParam.NOSE_WIDTH])
+    val bridge = a[AppearanceParam.NOSE_BRIDGE]
+
+    // Stylised noses are mostly shadow: a soft wedge on the shaded side plus a small highlight.
+    drawPath(
+        Path().apply {
+            moveTo(f.cx + halfW * 0.30f, f.eyeY + length * 0.10f)
+            quadraticTo(
+                f.cx + halfW * 0.85f, tipY - length * 0.25f,
+                f.cx + halfW * 0.35f, tipY,
+            )
+        },
+        color = skin.shade(0.76f).copy(alpha = 0.30f + bridge * 0.35f),
+        style = Stroke(width = halfW * 0.55f, cap = StrokeCap.Round),
+    )
+    drawOval(
+        color = skin.shade(0.82f).copy(alpha = 0.55f),
+        topLeft = Offset(f.cx - halfW * 0.75f, tipY - halfW * 0.18f),
+        size = Size(halfW * 1.5f, halfW * 0.55f),
+    )
+    drawOval(
+        color = Color.White.copy(alpha = 0.16f),
+        topLeft = Offset(f.cx - halfW * 0.42f, tipY - halfW * 0.42f),
+        size = Size(halfW * 0.7f, halfW * 0.34f),
+    )
+}
+
+private fun DrawScope.drawMouth(
+    a: CharacterAppearance,
+    shape: ExpressionShape,
+    f: Face,
+    skin: Color,
+) {
+    val mouthY = f.eyeY + (f.chinY - f.eyeY) * mix(0.62f, 0.78f, a[AppearanceParam.MOUTH_HEIGHT])
+    val width = (a[AppearanceParam.MOUTH_WIDTH] + shape.mouthWidth).coerceIn(0f, 1f)
+    val curveAmount = (a[AppearanceParam.LIP_CURVE] + shape.mouthCurve).coerceIn(0f, 1f)
+    val halfW = f.cheekHalf * mix(0.20f, 0.34f, width)
+    val fullness = a[AppearanceParam.LIP_FULLNESS]
+    val upperH = halfW * mix(0.16f, 0.38f, fullness)
+    val lowerH = halfW * mix(0.20f, 0.48f, fullness)
+    val curve = mix(halfW * 0.16f, -halfW * 0.22f, curveAmount)
+    val open = shape.mouthOpen
+
+    val lip = skin.mix(Color(0xFFAF4257), 0.62f)
+
+    val lips = Path().apply {
+        moveTo(f.cx - halfW, mouthY + curve)
+        cubicTo(
+            f.cx - halfW * 0.52f, mouthY - upperH,
+            f.cx - halfW * 0.18f, mouthY - upperH * 0.82f,
+            f.cx, mouthY - upperH * 0.30f,
+        )
+        cubicTo(
+            f.cx + halfW * 0.18f, mouthY - upperH * 0.82f,
+            f.cx + halfW * 0.52f, mouthY - upperH,
+            f.cx + halfW, mouthY + curve,
+        )
+        cubicTo(
+            f.cx + halfW * 0.52f, mouthY + lowerH + open * halfW * 0.55f,
+            f.cx - halfW * 0.52f, mouthY + lowerH + open * halfW * 0.55f,
+            f.cx - halfW, mouthY + curve,
+        )
+        close()
+    }
+    drawPath(lips, lip)
+    clipPath(lips) {
+        drawRect(
+            brush = Brush.verticalGradient(
+                listOf(lip.shade(0.72f), lip.lighten(1.18f)),
+            ),
+            topLeft = Offset(f.cx - halfW, mouthY - upperH),
+            size = Size(halfW * 2f, upperH + lowerH + open * halfW),
+        )
+    }
+
+    // An open mouth needs a dark interior or it reads as a smear.
+    if (open > 0.02f) {
+        val inner = Path().apply {
+            moveTo(f.cx - halfW * 0.78f, mouthY + curve * 0.4f)
+            quadraticTo(f.cx, mouthY + lowerH * 0.5f + open * halfW * 0.75f, f.cx + halfW * 0.78f, mouthY + curve * 0.4f)
+            quadraticTo(f.cx, mouthY + curve * 0.2f, f.cx - halfW * 0.78f, mouthY + curve * 0.4f)
+            close()
+        }
+        drawPath(inner, Color(0xFF52182A).copy(alpha = min(1f, open * 2.2f)))
+        // Teeth, on a wide open smile.
+        if (open > 0.35f) {
+            clipPath(inner) {
+                drawRect(
+                    color = Color(0xFFF6EFF3),
+                    topLeft = Offset(f.cx - halfW * 0.78f, mouthY + curve * 0.2f),
+                    size = Size(halfW * 1.56f, lowerH * 0.55f),
+                )
+            }
+        }
+    }
+
+    drawPath(
+        Path().apply {
+            moveTo(f.cx - halfW, mouthY + curve)
+            cubicTo(
+                f.cx - halfW * 0.38f, mouthY + upperH * 0.20f,
+                f.cx + halfW * 0.38f, mouthY + upperH * 0.20f,
+                f.cx + halfW, mouthY + curve,
+            )
+        },
+        color = lip.shade(0.55f),
+        style = Stroke(width = halfW * 0.070f, cap = StrokeCap.Round),
+    )
+    drawPath(
+        Path().apply {
+            moveTo(f.cx - halfW * 0.32f, mouthY + lowerH * 0.62f)
+            quadraticTo(f.cx, mouthY + lowerH * 0.86f, f.cx + halfW * 0.32f, mouthY + lowerH * 0.62f)
+        },
+        color = Color.White.copy(alpha = 0.30f),
+        style = Stroke(width = halfW * 0.085f, cap = StrokeCap.Round),
+    )
+}
+
+private fun DrawScope.drawBlush(
+    a: CharacterAppearance,
+    shape: ExpressionShape,
+    f: Face,
+    faceH: Float,
+) {
+    val strength = (a[AppearanceParam.BLUSH] + shape.blush).coerceIn(0f, 1f)
+    if (strength <= 0.02f) return
+    for (side in listOf(-1f, 1f)) {
+        val centre = Offset(f.cx + side * f.cheekHalf * 0.56f, f.eyeY + faceH * 0.16f)
+        softGlow(centre, f.cheekHalf * 0.46f, Color(0xFFE8697F).copy(alpha = 0.50f * strength))
+        // Hatching over the top of the blush, a stylisation that reads well at small sizes.
+        if (strength > 0.4f) {
+            repeat(3) { i ->
+                drawLine(
+                    color = Color(0xFFD9546C).copy(alpha = 0.30f * strength),
+                    start = Offset(centre.x - f.cheekHalf * 0.22f, centre.y - f.cheekHalf * (0.06f - i * 0.07f)),
+                    end = Offset(centre.x + f.cheekHalf * 0.24f, centre.y - f.cheekHalf * (0.14f - i * 0.07f)),
+                    strokeWidth = f.cheekHalf * 0.035f,
                     cap = StrokeCap.Round,
                 )
             }
@@ -395,354 +808,228 @@ private fun DrawScope.drawEye(
     }
 }
 
-private fun DrawScope.drawBrow(
-    a: CharacterAppearance,
-    cx: Float,
-    eyeY: Float,
-    eyeW: Float,
-    eyeH: Float,
-    side: Float,
-    hair: Color,
-) {
-    val gap = eyeH * mix(1.1f, 3.0f, a[AppearanceParam.BROW_HEIGHT])
-    val browY = eyeY - gap
-    val thickness = eyeH * mix(0.22f, 0.62f, a[AppearanceParam.BROW_THICKNESS])
-    val arch = eyeH * mix(-0.1f, 0.85f, a[AppearanceParam.BROW_ANGLE])
-    val halfW = eyeW * 0.62f
-
-    val inner = Offset(cx - side * halfW * 0.85f, browY)
-    val outer = Offset(cx + side * halfW * 1.1f, browY - arch * 0.35f)
-    val peak = Offset(cx + side * halfW * 0.35f, browY - arch)
-
-    val brow = Path().apply {
-        moveTo(inner.x, inner.y + thickness * 0.5f)
-        quadraticTo(peak.x, peak.y - thickness * 0.1f, outer.x, outer.y)
-        quadraticTo(peak.x, peak.y + thickness, inner.x, inner.y + thickness * 0.5f)
-        close()
-    }
-    drawPath(brow, hair.darken(0.85f))
-}
-
-private fun DrawScope.drawNose(
-    a: CharacterAppearance,
-    cx: Float,
-    eyeY: Float,
-    chinY: Float,
-    faceW: Float,
-    skin: Color,
-) {
-    val length = (chinY - eyeY) * mix(0.34f, 0.55f, a[AppearanceParam.NOSE_LENGTH])
-    val tipY = eyeY + length
-    val halfW = faceW * mix(0.055f, 0.105f, a[AppearanceParam.NOSE_WIDTH])
-    val bridge = a[AppearanceParam.NOSE_BRIDGE]
-
-    // Bridge: a soft shadow down one side, stronger the more defined the bridge is.
-    if (bridge > 0.1f) {
-        drawLine(
-            color = skin.darken(0.88f).copy(alpha = 0.30f + bridge * 0.35f),
-            start = Offset(cx - halfW * 0.55f, eyeY - length * 0.1f),
-            end = Offset(cx - halfW * 0.75f, tipY - halfW * 0.4f),
-            strokeWidth = halfW * (0.25f + bridge * 0.3f),
-            cap = StrokeCap.Round,
-        )
-    }
-
-    // Tip and nostril wings.
-    val tip = Path().apply {
-        moveTo(cx - halfW, tipY)
-        quadraticTo(cx - halfW * 0.55f, tipY + halfW * 0.62f, cx, tipY + halfW * 0.30f)
-        quadraticTo(cx + halfW * 0.55f, tipY + halfW * 0.62f, cx + halfW, tipY)
-    }
-    drawPath(
-        tip,
-        color = skin.darken(0.80f),
-        style = Stroke(width = halfW * 0.22f, cap = StrokeCap.Round),
-    )
-}
-
-private fun DrawScope.drawMouth(
-    a: CharacterAppearance,
-    cx: Float,
-    eyeY: Float,
-    chinY: Float,
-    faceW: Float,
-    skin: Color,
-) {
-    val mouthY = eyeY + (chinY - eyeY) * mix(0.60f, 0.78f, a[AppearanceParam.MOUTH_HEIGHT])
-    val halfW = faceW * mix(0.13f, 0.22f, a[AppearanceParam.MOUTH_WIDTH])
-    val fullness = a[AppearanceParam.LIP_FULLNESS]
-    val upperH = halfW * mix(0.16f, 0.42f, fullness)
-    val lowerH = halfW * mix(0.20f, 0.52f, fullness)
-    val curve = mix(halfW * 0.14f, -halfW * 0.16f, a[AppearanceParam.LIP_CURVE])
-
-    val lipColor = skin.mixWith(Color(0xFFB4485C), 0.55f)
-
-    val lips = Path().apply {
-        // Upper lip, with a cupid's bow at the centre.
-        moveTo(cx - halfW, mouthY + curve)
-        cubicTo(
-            cx - halfW * 0.55f, mouthY - upperH,
-            cx - halfW * 0.20f, mouthY - upperH * 0.85f,
-            cx, mouthY - upperH * 0.35f,
-        )
-        cubicTo(
-            cx + halfW * 0.20f, mouthY - upperH * 0.85f,
-            cx + halfW * 0.55f, mouthY - upperH,
-            cx + halfW, mouthY + curve,
-        )
-        // Lower lip.
-        cubicTo(
-            cx + halfW * 0.55f, mouthY + lowerH,
-            cx - halfW * 0.55f, mouthY + lowerH,
-            cx - halfW, mouthY + curve,
-        )
-        close()
-    }
-    drawPath(lips, lipColor)
-
-    // The mouth line itself, darker than the lips.
-    val line = Path().apply {
-        moveTo(cx - halfW, mouthY + curve)
-        cubicTo(
-            cx - halfW * 0.4f, mouthY + upperH * 0.18f,
-            cx + halfW * 0.4f, mouthY + upperH * 0.18f,
-            cx + halfW, mouthY + curve,
-        )
-    }
-    drawPath(
-        line,
-        color = lipColor.darken(0.62f),
-        style = Stroke(width = halfW * 0.075f, cap = StrokeCap.Round),
-    )
-    // Highlight on the lower lip.
-    drawPath(
-        Path().apply {
-            moveTo(cx - halfW * 0.35f, mouthY + lowerH * 0.55f)
-            quadraticTo(cx, mouthY + lowerH * 0.78f, cx + halfW * 0.35f, mouthY + lowerH * 0.55f)
-        },
-        color = Color.White.copy(alpha = 0.22f),
-        style = Stroke(width = halfW * 0.09f, cap = StrokeCap.Round),
-    )
-}
-
-private fun DrawScope.drawBlush(
-    a: CharacterAppearance,
-    cx: Float,
-    eyeY: Float,
-    faceH: Float,
-    cheekHalf: Float,
-    facePath: Path,
-) {
-    val strength = a[AppearanceParam.BLUSH]
-    if (strength <= 0.02f) return
-    clipPath(facePath) {
-        for (side in listOf(-1f, 1f)) {
-            val centre = Offset(cx + side * cheekHalf * 0.58f, eyeY + faceH * 0.17f)
-            val radius = cheekHalf * 0.42f
-            drawCircle(
-                brush = Brush.radialGradient(
-                    listOf(Color(0xFFE8697F).copy(alpha = 0.42f * strength), Color.Transparent),
-                    center = centre,
-                    radius = radius,
-                ),
-                radius = radius,
-                center = centre,
-            )
-        }
-    }
-}
-
-private fun DrawScope.drawFreckles(
-    a: CharacterAppearance,
-    cx: Float,
-    cheekY: Float,
-    faceH: Float,
-    cheekHalf: Float,
-    facePath: Path,
-    skin: Color,
-) {
+private fun DrawScope.drawFreckles(a: CharacterAppearance, f: Face, faceH: Float, skin: Color) {
     val density = a[AppearanceParam.FRECKLES]
     if (density <= 0.02f) return
-    // Seeded so freckles hold still while other sliders move.
     val random = Random(31)
-    val count = (density * 46).toInt()
-    val color = skin.darken(0.72f).copy(alpha = 0.55f)
-    clipPath(facePath) {
-        repeat(count) {
-            val x = cx + (random.nextFloat() - 0.5f) * cheekHalf * 2.0f
-            val y = cheekY + (random.nextFloat() - 0.35f) * faceH * 0.26f
-            drawCircle(color, radius = cheekHalf * (0.012f + random.nextFloat() * 0.014f), center = Offset(x, y))
-        }
+    val color = skin.shade(0.70f).copy(alpha = 0.55f)
+    repeat((density * 46).toInt()) {
+        val x = f.cx + (random.nextFloat() - 0.5f) * f.cheekHalf * 1.9f
+        val y = f.cheekY + (random.nextFloat() - 0.30f) * faceH * 0.24f
+        drawCircle(
+            color,
+            radius = f.cheekHalf * (0.011f + random.nextFloat() * 0.013f),
+            center = Offset(x, y),
+        )
     }
 }
 
 // --------------------------------------------------------------------------- hair
 
-private fun DrawScope.drawBackHair(
-    a: CharacterAppearance,
-    hair: Color,
-    cx: Float,
-    faceTop: Float,
-    chinY: Float,
-    cheekHalf: Float,
-) {
-    val style = a.hairStyle
-    val length = when (style) {
-        HairStyle.LONG_STRAIGHT, HairStyle.LONG_WAVY -> 1.15f
-        HairStyle.TWIN_TAILS -> 0.95f
-        HairStyle.SHOULDER_LAYERED, HairStyle.CURLY_CLOUD -> 0.62f
-        HairStyle.BOB -> 0.42f
+private fun DrawScope.drawBackHair(a: CharacterAppearance, hair: Color, f: Face, shimmer: Float) {
+    val length = when (a.hairStyle) {
+        HairStyle.LONG_STRAIGHT, HairStyle.LONG_WAVY -> 1.20f
+        HairStyle.TWIN_TAILS -> 1.00f
+        HairStyle.SHOULDER_LAYERED, HairStyle.CURLY_CLOUD -> 0.64f
+        HairStyle.BOB -> 0.44f
         else -> 0.16f
     }
     if (length <= 0.2f) return
 
-    val bottom = chinY + (chinY - faceTop) * length
-    val width = cheekHalf * when (style) {
-        HairStyle.CURLY_CLOUD -> 1.75f
-        HairStyle.LONG_WAVY -> 1.45f
-        else -> 1.28f
+    val span = f.height
+    val bottom = f.chinY + span * length
+    val width = f.cheekHalf * when (a.hairStyle) {
+        HairStyle.CURLY_CLOUD -> 1.80f
+        HairStyle.LONG_WAVY -> 1.48f
+        else -> 1.30f
     }
 
     val back = Path().apply {
-        moveTo(cx - width, chinY)
+        moveTo(f.cx - width, f.chinY)
         cubicTo(
-            cx - width * 1.05f, faceTop + (chinY - faceTop) * 0.25f,
-            cx - width * 0.75f, faceTop - (chinY - faceTop) * 0.12f,
-            cx, faceTop - (chinY - faceTop) * 0.14f,
+            f.cx - width * 1.06f, f.top + span * 0.24f,
+            f.cx - width * 0.74f, f.top - span * 0.13f,
+            f.cx, f.top - span * 0.15f,
         )
         cubicTo(
-            cx + width * 0.75f, faceTop - (chinY - faceTop) * 0.12f,
-            cx + width * 1.05f, faceTop + (chinY - faceTop) * 0.25f,
-            cx + width, chinY,
+            f.cx + width * 0.74f, f.top - span * 0.13f,
+            f.cx + width * 1.06f, f.top + span * 0.24f,
+            f.cx + width, f.chinY,
         )
-        lineTo(cx + width * 0.92f, bottom)
+        lineTo(f.cx + width * 0.90f, bottom)
         cubicTo(
-            cx + width * 0.4f, bottom + (chinY - faceTop) * 0.06f,
-            cx - width * 0.4f, bottom + (chinY - faceTop) * 0.06f,
-            cx - width * 0.92f, bottom,
+            f.cx + width * 0.38f, bottom + span * 0.07f,
+            f.cx - width * 0.38f, bottom + span * 0.07f,
+            f.cx - width * 0.90f, bottom,
         )
         close()
     }
-    drawPath(back, hair.darken(0.80f))
+    drawPath(back, hair.shade(0.66f))
+    clipPath(back) {
+        drawRect(
+            brush = Brush.verticalGradient(
+                listOf(hair.shade(0.82f), hair.shade(0.42f)),
+            ),
+            topLeft = Offset(f.cx - width, f.top - span * 0.2f),
+            size = Size(width * 2f, bottom - f.top + span * 0.3f),
+        )
+        // Strand separations.
+        val random = Random(5)
+        repeat(7) {
+            val sx = f.cx + (random.nextFloat() - 0.5f) * width * 1.8f
+            drawLine(
+                color = hair.shade(0.45f).copy(alpha = 0.5f),
+                start = Offset(sx, f.top + span * 0.1f),
+                end = Offset(sx + width * 0.10f, bottom),
+                strokeWidth = width * 0.035f,
+                cap = StrokeCap.Round,
+            )
+        }
+    }
 
-    if (style == HairStyle.TWIN_TAILS) {
+    if (a.hairStyle == HairStyle.TWIN_TAILS) {
         for (side in listOf(-1f, 1f)) {
-            val tailX = cx + side * cheekHalf * 1.42f
+            val tailX = f.cx + side * f.cheekHalf * 1.45f
             drawOval(
-                color = hair.darken(0.86f),
-                topLeft = Offset(tailX - cheekHalf * 0.42f, faceTop + (chinY - faceTop) * 0.28f),
-                size = Size(cheekHalf * 0.84f, (chinY - faceTop) * 1.05f),
+                brush = Brush.verticalGradient(listOf(hair.shade(0.85f), hair.shade(0.5f))),
+                topLeft = Offset(tailX - f.cheekHalf * 0.44f, f.top + span * 0.26f),
+                size = Size(f.cheekHalf * 0.88f, span * 1.05f),
             )
         }
     }
 }
 
-private fun DrawScope.drawFrontHair(
-    a: CharacterAppearance,
-    hair: Color,
-    cx: Float,
-    faceTop: Float,
-    chinY: Float,
-    cheekHalf: Float,
-) {
-    val faceSpan = chinY - faceTop
-    val crownTop = faceTop - faceSpan * 0.10f
-    val crownHalf = cheekHalf * 1.06f
+private fun DrawScope.drawFrontHair(a: CharacterAppearance, hair: Color, f: Face, shimmer: Float) {
+    val span = f.height
+    val crownTop = f.top - span * 0.11f
+    val crownHalf = f.cheekHalf * 1.07f
 
-    // The cap of hair sitting on the skull, shared by every style.
     val cap = Path().apply {
-        moveTo(cx - crownHalf, faceTop + faceSpan * 0.22f)
+        moveTo(f.cx - crownHalf, f.top + span * 0.24f)
         cubicTo(
-            cx - crownHalf, crownTop + faceSpan * 0.02f,
-            cx - crownHalf * 0.55f, crownTop,
-            cx, crownTop,
+            f.cx - crownHalf, crownTop + span * 0.02f,
+            f.cx - crownHalf * 0.54f, crownTop,
+            f.cx, crownTop,
         )
         cubicTo(
-            cx + crownHalf * 0.55f, crownTop,
-            cx + crownHalf, crownTop + faceSpan * 0.02f,
-            cx + crownHalf, faceTop + faceSpan * 0.22f,
+            f.cx + crownHalf * 0.54f, crownTop,
+            f.cx + crownHalf, crownTop + span * 0.02f,
+            f.cx + crownHalf, f.top + span * 0.24f,
         )
         close()
     }
     drawPath(cap, hair)
+    clipPath(cap) {
+        drawRect(
+            brush = Brush.verticalGradient(listOf(hair.lighten(1.20f), hair.shade(0.72f))),
+            topLeft = Offset(f.cx - crownHalf, crownTop),
+            size = Size(crownHalf * 2f, span * 0.4f),
+        )
+    }
 
-    // The fringe, which is what actually distinguishes the styles from the front.
     val fringe = when (a.hairStyle) {
         HairStyle.BUZZ -> null
 
         HairStyle.UNDERCUT, HairStyle.SLICKED_BACK -> Path().apply {
-            // Swept clear of the forehead.
-            moveTo(cx - crownHalf, faceTop + faceSpan * 0.20f)
+            moveTo(f.cx - crownHalf, f.top + span * 0.20f)
             cubicTo(
-                cx - crownHalf * 0.5f, faceTop + faceSpan * 0.10f,
-                cx + crownHalf * 0.4f, faceTop + faceSpan * 0.06f,
-                cx + crownHalf, faceTop + faceSpan * 0.16f,
+                f.cx - crownHalf * 0.5f, f.top + span * 0.10f,
+                f.cx + crownHalf * 0.4f, f.top + span * 0.05f,
+                f.cx + crownHalf, f.top + span * 0.15f,
             )
-            lineTo(cx + crownHalf, faceTop - faceSpan * 0.02f)
-            lineTo(cx - crownHalf, faceTop - faceSpan * 0.02f)
+            lineTo(f.cx + crownHalf, crownTop)
+            lineTo(f.cx - crownHalf, crownTop)
             close()
         }
 
         HairStyle.SHORT_MESSY, HairStyle.CURLY_CLOUD -> Path().apply {
-            // A broken, tufted edge.
-            moveTo(cx - crownHalf, faceTop + faceSpan * 0.10f)
-            var x = cx - crownHalf
+            moveTo(f.cx - crownHalf, f.top + span * 0.08f)
+            var x = f.cx - crownHalf
             val step = (crownHalf * 2f) / 5f
             repeat(5) { i ->
-                val depth = if (i % 2 == 0) 0.30f else 0.19f
-                quadraticTo(
-                    x + step * 0.5f, faceTop + faceSpan * depth,
-                    x + step, faceTop + faceSpan * 0.12f,
-                )
+                val depth = if (i % 2 == 0) 0.30f else 0.17f
+                quadraticTo(x + step * 0.5f, f.top + span * depth, x + step, f.top + span * 0.10f)
                 x += step
             }
-            lineTo(cx + crownHalf, faceTop - faceSpan * 0.02f)
-            lineTo(cx - crownHalf, faceTop - faceSpan * 0.02f)
+            lineTo(f.cx + crownHalf, crownTop)
+            lineTo(f.cx - crownHalf, crownTop)
             close()
         }
 
         else -> Path().apply {
-            // A parted fringe: two curtains meeting off-centre.
-            moveTo(cx - crownHalf, faceTop + faceSpan * 0.06f)
+            // A parted curtain fringe, the most flattering default.
+            moveTo(f.cx - crownHalf, f.top + span * 0.04f)
             cubicTo(
-                cx - crownHalf * 0.85f, faceTop + faceSpan * 0.30f,
-                cx - crownHalf * 0.30f, faceTop + faceSpan * 0.26f,
-                cx - crownHalf * 0.12f, faceTop + faceSpan * 0.05f,
+                f.cx - crownHalf * 0.88f, f.top + span * 0.32f,
+                f.cx - crownHalf * 0.30f, f.top + span * 0.28f,
+                f.cx - crownHalf * 0.10f, f.top + span * 0.03f,
             )
             cubicTo(
-                cx + crownHalf * 0.20f, faceTop + faceSpan * 0.30f,
-                cx + crownHalf * 0.80f, faceTop + faceSpan * 0.34f,
-                cx + crownHalf, faceTop + faceSpan * 0.08f,
+                f.cx + crownHalf * 0.22f, f.top + span * 0.33f,
+                f.cx + crownHalf * 0.82f, f.top + span * 0.37f,
+                f.cx + crownHalf, f.top + span * 0.06f,
             )
-            lineTo(cx + crownHalf, faceTop - faceSpan * 0.02f)
-            lineTo(cx - crownHalf, faceTop - faceSpan * 0.02f)
+            lineTo(f.cx + crownHalf, crownTop)
+            lineTo(f.cx - crownHalf, crownTop)
             close()
         }
     }
-    fringe?.let { drawPath(it, hair) }
 
-    // A sheen across the crown so flat fills read as hair.
-    val sheen = Path().apply {
+    fringe?.let { path ->
+        drawPath(path, hair)
+        clipPath(path) {
+            drawRect(
+                brush = Brush.verticalGradient(listOf(hair.lighten(1.15f), hair.shade(0.68f))),
+                topLeft = Offset(f.cx - crownHalf, crownTop),
+                size = Size(crownHalf * 2f, span * 0.45f),
+            )
+        }
+    }
+
+    // The highlight band across the crown — the single detail that most makes hair look like hair.
+    val bandTop = crownTop + span * (0.06f + 0.01f * kotlin.math.sin(shimmer * 6.28f))
+    val band = Path().apply {
         addOval(
             Rect(
-                left = cx - crownHalf * 0.62f,
-                top = crownTop + faceSpan * 0.03f,
-                right = cx + crownHalf * 0.62f,
-                bottom = crownTop + faceSpan * 0.20f,
+                left = f.cx - crownHalf * 0.70f,
+                top = bandTop,
+                right = f.cx + crownHalf * 0.70f,
+                bottom = bandTop + span * 0.13f,
             ),
         )
     }
-    val clipped = Path().apply {
-        op(sheen, cap, PathOperation.Intersect)
+    val inner = Path().apply {
+        addOval(
+            Rect(
+                left = f.cx - crownHalf * 0.62f,
+                top = bandTop + span * 0.030f,
+                right = f.cx + crownHalf * 0.62f,
+                bottom = bandTop + span * 0.115f,
+            ),
+        )
     }
-    drawPath(clipped, hair.lighten(1.35f).copy(alpha = 0.35f))
+    val ring = Path().apply { op(band, inner, PathOperation.Difference) }
+    val clippedToHead = Path().apply { op(ring, cap, PathOperation.Intersect) }
+    drawPath(clippedToHead, hair.lighten(1.75f).copy(alpha = 0.55f))
 }
 
 // --------------------------------------------------------------------------- helpers
 
+private fun DrawScope.softGlow(centre: Offset, radius: Float, color: Color) {
+    drawCircle(
+        brush = Brush.radialGradient(
+            colors = listOf(color, Color.Transparent),
+            center = centre,
+            radius = radius,
+        ),
+        radius = radius,
+        center = centre,
+    )
+}
+
 private fun mix(from: Float, to: Float, t: Float): Float = from + (to - from) * t.coerceIn(0f, 1f)
 
-private fun Color.darken(factor: Float) = Color(
+private fun Color.shade(factor: Float) = Color(
     red = (red * factor).coerceIn(0f, 1f),
     green = (green * factor).coerceIn(0f, 1f),
     blue = (blue * factor).coerceIn(0f, 1f),
@@ -756,7 +1043,7 @@ private fun Color.lighten(factor: Float) = Color(
     alpha = alpha,
 )
 
-private fun Color.mixWith(other: Color, amount: Float): Color {
+private fun Color.mix(other: Color, amount: Float): Color {
     val t = amount.coerceIn(0f, 1f)
     return Color(
         red = red + (other.red - red) * t,

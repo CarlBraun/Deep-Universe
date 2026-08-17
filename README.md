@@ -16,6 +16,9 @@ only person here who can hear it.
 | Area | State |
 | --- | --- |
 | Walk-around overworld, 7 locations | Complete and unit-tested |
+| Collectable expressions (11 faces) | Complete and unit-tested |
+| Endless bond ranks and the moments loop | Complete and unit-tested |
+| Store, wallet, boosts, spend guard | Complete and unit-tested; billing stubbed |
 | Photo → character generation | Complete and unit-tested |
 | Manual character editor (30 parameters, colours, hair, presets) | Complete |
 | Live parametric portrait renderer | Complete |
@@ -23,7 +26,7 @@ only person here who can hear it.
 | Cast of six love interests | Complete, with 9 shipped scenes |
 | Character art, voice, music, 3D | Not started — see [Roadmap](#roadmap) |
 
-91 unit tests cover the world, the character pipeline and the game logic.
+130 unit tests cover the world, the economy, the character pipeline and the game logic.
 
 ---
 
@@ -70,6 +73,62 @@ tests then check what the picture cannot: that every exit lands somewhere walkab
 bounces you straight back, that nobody is standing inside a tree, and that **every area and every
 character is reachable on foot from where the player starts**. One test walks the whole route from
 the starting cabin to the beach, tile by tile.
+
+---
+
+## Progression, rewards and money
+
+### Expressions are the collection
+
+Eleven faces per character — *Soft smile*, *Caught out*, *Smouldering*, *Overwhelmed* — unlocked by
+bond rank. Because the portrait renderer is parametric, an expression is a handful of offsets
+(`ExpressionShape`) applied on top of whatever face that character already has, not a new
+illustration. A smoulder on a wide-eyed face and on a hooded one are recognisably the same
+expression *and* recognisably still those two people.
+
+That is what makes an endless reward loop affordable: **a new face costs data, not art hours.**
+
+When you earn one it is shown on the character immediately, full size, rather than as an icon in a
+list. The reward is seeing them look at you differently, so that is what the game shows you.
+
+### The loop is endless
+
+`AffectionLevel` still gates story scenes and stops at Beloved, because a story has an end. **Bond
+ranks** continue past it forever on a quadratic curve — the story tiers first, then numbered
+devotion ranks. Once someone's written scenes run out, spending a **moment** with them still moves
+the bond and still earns faces.
+
+Moments regenerate from a stored timestamp rather than a ticking timer, so they come back with the
+app closed and there is no background service to get wrong.
+
+### What money buys, and what it does not
+
+**Money buys time and cosmetics. It never buys affection.** Every scene, every character and every
+expression is reachable by playing, for free. A test asserts the catalogue contains nothing that
+even reads as content:
+
+```kotlin
+@Test fun `nothing purchasable unlocks a story scene or a character`()
+@Test fun `a player who never pays still reaches every face`()
+@Test fun `warmth depends on the bond and never on what was spent`()
+```
+
+That last one matters most: the same rank produces the same warmth whether the player has spent
+nothing or everything. No character in this game withholds affection pending a transaction.
+
+This is a design decision before it is an ethical one. Emotional pressure attached to payment is
+what draws regulator attention and store takedowns for games in this genre — and it converts worse
+than the alternative, because people who feel handled stop playing. The loop that earns money is
+*wanting more time with someone you already like*.
+
+Also built in: prices shown up front with no countdown timers or fake scarcity, bigger tiers that
+are genuinely better value (asserted by a test), purchases restored on launch so a crash mid-payment
+never loses what someone paid for, and a **monthly spending cap players can set on themselves**,
+enforced before any payment sheet opens.
+
+Real billing sits behind a `PurchaseGateway` interface. The shipped stub takes no money, so the
+whole economy is playable and reviewable now; going live is one implementation of that interface
+plus a Play Console account.
 
 ---
 
@@ -149,12 +208,15 @@ core/                     Pure Kotlin/JVM — no Android dependency, fully unit-
   color/                  ARGB maths and perceptual colour distance
   photo/                  MeshLandmarkMapper, FaceGeometry, PhotoToAppearance
   world/                  WorldAtlas (the maps), WorldEngine (movement, interaction)
-  game/                   StoryEngine, GameState, Cast, StoryLibrary
+  store/                  Catalogue, Wallet, boosts, PurchaseGateway
+  game/                   StoryEngine, GameState, Cast, StoryLibrary,
+                          Bond (endless ranks), Stamina, Companionship
 
 app/                      Android + Jetpack Compose
   photo/                  ML Kit adapter, bitmap colour sampling, EXIF handling
   ui/avatar/              Parametric portrait renderer (Compose Canvas)
   ui/overworld/           Tile art, pixel sprites, the walk-around screen
+  ui/store/               Support tiers, Starlight offers, spend limit
   ui/creator/             Character creator, photo pickers
   ui/home, ui/route, ui/story
   data/                   Atomic JSON save file
@@ -232,7 +294,7 @@ From the command line:
 
 | Layer | How it's checked |
 | --- | --- |
-| `core/` — world, character, photo and game logic | 91 unit tests, run on the JVM |
+| `core/` — world, economy, character, photo and game logic | 130 unit tests, run on the JVM |
 | `app/photo/`, `app/data/`, `GameViewModel`, `CastLooks` | Type-checked against the real `core` jar plus hand-written stubs of the small Android/ML Kit surface they use |
 | `app/ui/` Compose screens | Parsed clean; Compose/Material3 API usage checked against the published API docs |
 
@@ -262,6 +324,8 @@ Nearest first:
    requires no engine or UI change.
 3. **A living world.** Characters currently stand in one place; the natural next step is a daily
    schedule, so who you find at the lodge depends on the time of day.
+4. **Real billing.** Implement `PurchaseGateway` against Play Billing, wire the product ids in the
+   Play Console, and take prices from the platform rather than the fallback labels.
 3. **Daily loop.** Messages, calls, gifts and a reason to open the app on a Tuesday.
 4. **Save slots and cloud sync.** The save format already round-trips and tolerates unknown fields
    from future versions.

@@ -3,6 +3,9 @@ package com.deepuniverse.app.ui.avatar
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
+// animateFloat is an extension on InfiniteTransition and needs importing separately from
+// animateFloatAsState, which is a different function entirely.
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition

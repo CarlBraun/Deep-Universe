@@ -35,6 +35,7 @@ import com.deepuniverse.app.ui.Screen
 import com.deepuniverse.app.ui.creator.CharacterCreatorScreen
 import com.deepuniverse.app.ui.home.HomeScreen
 import com.deepuniverse.app.ui.overworld.OverworldScreen
+import com.deepuniverse.app.ui.puzzle.PuzzleScreen
 import com.deepuniverse.app.ui.store.StoreScreen
 import com.deepuniverse.app.ui.route.RouteScreen
 import com.deepuniverse.app.ui.story.StoryScreen
@@ -78,6 +79,8 @@ private fun DeepUniverseApp(onFinish: () -> Unit) {
     val reward by viewModel.reward.collectAsStateWithLifecycle()
     val storeMessage by viewModel.storeMessage.collectAsStateWithLifecycle()
     val purchasing by viewModel.purchasing.collectAsStateWithLifecycle()
+    val puzzle by viewModel.puzzle.collectAsStateWithLifecycle()
+    val adReady by viewModel.adReady.collectAsStateWithLifecycle()
 
     BackHandler(enabled = true) {
         if (!viewModel.goBack()) onFinish()
@@ -106,13 +109,40 @@ private fun DeepUniverseApp(onFinish: () -> Unit) {
             momentsMax = state.stamina.max,
             stars = state.wallet.stars,
             boosted = viewModel.isBoosted(),
+            puzzleLabel = remember(worldPosition) {
+                viewModel.facingNpc()?.let { viewModel.puzzleKindFor(it.loveInterestId).label }
+            },
             onMove = viewModel::move,
             onInteract = viewModel::interact,
+            onPlayPuzzle = {
+                viewModel.facingNpc()?.let { viewModel.startPuzzle(it.loveInterestId) }
+            },
             onDismissMessage = viewModel::dismissOverworldMessage,
             onDismissReward = viewModel::dismissReward,
             onOpenJournal = viewModel::openHome,
             onOpenStore = viewModel::openStore,
         )
+
+        Screen.Puzzle -> {
+            val active = puzzle
+            if (active == null) {
+                LaunchedEffect(Unit) { viewModel.openOverworld() }
+            } else {
+                PuzzleScreen(
+                    puzzle = active,
+                    member = Cast.byId(active.loveInterestId),
+                    stars = state.wallet.stars,
+                    adReady = adReady,
+                    onRevealCell = viewModel::revealCell,
+                    onFlagCell = viewModel::flagCell,
+                    onSearch = viewModel::searchBush,
+                    onCookTick = viewModel::tickPot,
+                    onRetryWithStars = viewModel::retryPuzzleWithStars,
+                    onRetryWithAd = viewModel::retryPuzzleWithAd,
+                    onLeave = viewModel::leavePuzzle,
+                )
+            }
+        }
 
         Screen.Store -> StoreScreen(
             state = state,

@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -84,8 +85,10 @@ fun OverworldScreen(
     momentsMax: Int,
     stars: Int,
     boosted: Boolean,
+    puzzleLabel: String?,
     onMove: (Direction) -> Unit,
     onInteract: () -> Unit,
+    onPlayPuzzle: () -> Unit,
     onDismissMessage: () -> Unit,
     onDismissReward: () -> Unit,
     onOpenJournal: () -> Unit,
@@ -238,7 +241,13 @@ fun OverworldScreen(
             verticalAlignment = Alignment.Bottom,
         ) {
             Joystick(onStep = onMove)
-            TalkButton(enabled = facingNpc != null, onClick = onInteract)
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                if (facingNpc != null && puzzleLabel != null) {
+                    OutlinedButton(onClick = onPlayPuzzle) { Text(puzzleLabel) }
+                    Spacer(Modifier.height(10.dp))
+                }
+                TalkButton(enabled = facingNpc != null, onClick = onInteract)
+            }
         }
     }
 }

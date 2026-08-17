@@ -7,6 +7,8 @@ import kotlin.test.assertTrue
 
 class PuzzleTest {
 
+    private val now = 1_700_000_000L
+
     // ---------------------------------------------------------------- minesweeper
 
     @Test
@@ -230,6 +232,76 @@ class PuzzleTest {
         assertTrue(hard.timeLimitMillis < easy.timeLimitMillis)
         assertTrue(hard.bandHalfHeight >= 0.08f, "The band must stay hittable")
         assertTrue(hard.timeLimitMillis >= 18_000L, "There must always be time to cook")
+    }
+
+    // ---------------------------------------------------------------- invites
+
+    @Test
+    fun `every character has a game to play`() {
+        // A character with no game silently loses half the ways to spend time with them.
+        assertTrue(PuzzleInvite.allAssigned(), "Someone in the cast has no puzzle assigned")
+    }
+
+    @Test
+    fun `starting a game costs a moment, not Stars`() {
+        val state = com.deepuniverse.core.game.GameState(characterCreated = true)
+        val after = PuzzleInvite.start(state, now)
+        assertEquals(state.stamina.available - 1, after.stamina.available)
+        assertEquals(state.wallet.stars, after.wallet.stars, "Playing must never cost Stars")
+    }
+
+    @Test
+    fun `a game cannot be started with an empty bar`() {
+        val empty = com.deepuniverse.core.game.GameState(
+            characterCreated = true,
+            stamina = com.deepuniverse.core.game.Stamina(spent = 20, max = 20, lastSpentAtEpochSeconds = now),
+        )
+        assertTrue(!PuzzleInvite.canStart(empty, now))
+    }
+
+    @Test
+    fun `winning pays several times a plain moment and can unlock a face`() {
+        val state = com.deepuniverse.core.game.GameState(characterCreated = true)
+        val win = PuzzleInvite.win(state, "lyra", PuzzleKind.MINESWEEPER, now)
+        assertEquals(PuzzleKind.MINESWEEPER.reward, win.points)
+        assertTrue(
+            win.points > com.deepuniverse.core.game.Companionship.BASE_POINTS * 3,
+            "A puzzle should be clearly worth the extra minutes",
+        )
+        assertEquals(win.points, win.state.affectionFor("lyra"))
+        assertTrue(win.rankTitle.isNotBlank())
+    }
+
+    @Test
+    fun `a boost doubles a puzzle win too`() {
+        val boosted = com.deepuniverse.core.game.GameState(characterCreated = true).withBoost(
+            com.deepuniverse.core.store.Boost(
+                com.deepuniverse.core.store.BoostKind.AFFECTION_DOUBLE,
+                now + 3600,
+            ),
+            now,
+        )
+        val win = PuzzleInvite.win(boosted, "sev", PuzzleKind.COOKING, now)
+        assertEquals(PuzzleKind.COOKING.reward * 2, win.points)
+    }
+
+    @Test
+    fun `losing costs the moment but never takes Stars automatically`() {
+        // Failing must not reach into the wallet on its own; the retry is always a choice.
+        val state = com.deepuniverse.core.game.GameState(characterCreated = true)
+            .copy(wallet = com.deepuniverse.core.store.Wallet(stars = 100))
+        val afterStart = PuzzleInvite.start(state, now)
+        assertEquals(100, afterStart.wallet.stars)
+    }
+
+    @Test
+    fun `a retry is cheap and always has a free alternative`() {
+        val retry = com.deepuniverse.core.store.PuzzleRetry()
+        assertTrue(retry.starCost in 1..40, "A retry should be a nuisance, not a wall")
+        assertTrue(
+            com.deepuniverse.core.store.PuzzleRetry.FREE_RETRY_EXPLANATION.contains("free"),
+            "The free path must be stated to the player, not merely exist",
+        )
     }
 
     @Test

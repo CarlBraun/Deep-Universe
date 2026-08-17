@@ -29,6 +29,17 @@ import com.deepuniverse.core.store.StoreOffer
 import com.deepuniverse.core.store.SupportTier
 import com.deepuniverse.core.game.ScenePlayback
 import com.deepuniverse.core.game.StoryEngine
+import com.deepuniverse.core.puzzle.CookingGame
+import com.deepuniverse.core.puzzle.Minesweeper
+import com.deepuniverse.core.puzzle.PuzzleInvite
+import com.deepuniverse.core.puzzle.PuzzleKind
+import com.deepuniverse.core.puzzle.PuzzleOutcome
+import com.deepuniverse.core.puzzle.Puzzles
+import com.deepuniverse.core.puzzle.SquirrelHunt
+import com.deepuniverse.core.store.AdGateway
+import com.deepuniverse.core.store.AdResult
+import com.deepuniverse.core.store.NoOpAdGateway
+import com.deepuniverse.core.store.PuzzleRetry
 import com.deepuniverse.core.photo.AnalysisNote
 import com.deepuniverse.core.photo.AnalysisResult
 import com.deepuniverse.core.world.Direction
@@ -54,10 +65,51 @@ sealed interface Screen {
     /** The journal: the whole cast and how close you are to each of them. */
     data object Home : Screen
 
-    /** Support the game, and spend Starlight on time-savers. */
+    /** Support the game, and spend Stars on time-savers. */
     data object Store : Screen
+
+    /** A minigame in progress with somebody. */
+    data object Puzzle : Screen
     data class Route(val loveInterestId: String) : Screen
     data object Story : Screen
+}
+
+/**
+ * A minigame in progress.
+ *
+ * One subclass per game, each holding the pure state machine from `core`. The screen switches on
+ * this and does nothing else — every rule lives in the game object it wraps.
+ */
+sealed interface PuzzleState {
+    val kind: PuzzleKind
+    val loveInterestId: String
+    val outcome: PuzzleOutcome
+
+    data class Sweep(
+        override val loveInterestId: String,
+        val board: Minesweeper,
+        /** True while the player has flag mode latched on. */
+        val flagging: Boolean = false,
+    ) : PuzzleState {
+        override val kind = PuzzleKind.MINESWEEPER
+        override val outcome get() = board.outcome
+    }
+
+    data class Hunt(
+        override val loveInterestId: String,
+        val hunt: SquirrelHunt,
+    ) : PuzzleState {
+        override val kind = PuzzleKind.SQUIRREL_HUNT
+        override val outcome get() = hunt.outcome
+    }
+
+    data class Cook(
+        override val loveInterestId: String,
+        val game: CookingGame,
+    ) : PuzzleState {
+        override val kind = PuzzleKind.COOKING
+        override val outcome get() = game.outcome
+    }
 }
 
 /** What the player just earned from a moment together, shown as a card and then dismissed. */
@@ -98,6 +150,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
      */
     private val gateway: PurchaseGateway = NoOpPurchaseGateway()
 
+    /** Swapped for a real ad network when the game ships. The stub shows nothing and blocks nobody. */
+    private val ads: AdGateway = NoOpAdGateway()
+
     private val saveStore = SaveStore(application)
     private val generator = PhotoCharacterGenerator(application)
     private val storyEngine = StoryEngine()
@@ -130,6 +185,12 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _purchasing = MutableStateFlow(false)
     val purchasing: StateFlow<Boolean> = _purchasing.asStateFlow()
+
+    private val _puzzle = MutableStateFlow<PuzzleState?>(null)
+    val puzzle: StateFlow<PuzzleState?> = _puzzle.asStateFlow()
+
+    private val _adReady = MutableStateFlow(false)
+    val adReady: StateFlow<Boolean> = _adReady.asStateFlow()
 
     /** Where the player is standing. Lives in [state] so it is part of the save. */
     val worldPosition: StateFlow<WorldPosition>
@@ -210,6 +271,12 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         is Screen.Store -> {
             _storeMessage.value = null
             _screen.value = if (_state.value.characterCreated) Screen.Overworld else Screen.Title
+            true
+        }
+
+        is Screen.Puzzle -> {
+            _puzzle.value = null
+            _screen.value = Screen.Overworld
             true
         }
 
@@ -432,6 +499,125 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         if (refreshed != _state.value.stamina) {
             _state.update { it.copy(stamina = refreshed) }
         }
+    }
+
+    // ------------------------------------------------------------------ puzzles
+
+    /** The game this character wants to play, so the world button can name it. */
+    fun puzzleKindFor(loveInterestId: String): PuzzleKind = PuzzleInvite.kindFor(loveInterestId)
+
+    /**
+     * Starts a minigame with whoever the player is facing.
+     *
+     * The moment is spent up front. A loss therefore costs something, which is what gives the retry
+     * offer any meaning — but it costs a moment, never Stars, and never automatically.
+     */
+    fun startPuzzle(loveInterestId: String) {
+        val moment = now()
+        if (!PuzzleInvite.canStart(_state.value, moment)) {
+            _overworldMessage.value = "You're out of moments. Come back in a few minutes."
+            return
+        }
+
+        _state.value = PuzzleInvite.start(_state.value, moment)
+        _puzzle.value = freshPuzzle(loveInterestId, moment.toInt())
+        _screen.value = Screen.Puzzle
+        persist()
+
+        viewModelScope.launch { _adReady.value = ads.isRewardedAdReady() }
+    }
+
+    private fun freshPuzzle(loveInterestId: String, seed: Int): PuzzleState {
+        val rank = _state.value.rankFor(loveInterestId)
+        return when (PuzzleInvite.kindFor(loveInterestId)) {
+            PuzzleKind.MINESWEEPER -> PuzzleState.Sweep(
+                loveInterestId = loveInterestId,
+                board = Minesweeper.new(
+                    width = 8,
+                    height = 8,
+                    mines = Puzzles.mineCountFor(rank),
+                    seed = seed,
+                ),
+            )
+
+            PuzzleKind.SQUIRREL_HUNT -> PuzzleState.Hunt(
+                loveInterestId = loveInterestId,
+                hunt = SquirrelHunt.new(width = 6, height = 6, attempts = 7, seed = seed),
+            )
+
+            PuzzleKind.COOKING -> PuzzleState.Cook(
+                loveInterestId = loveInterestId,
+                game = CookingGame.new(rank = rank, seed = seed),
+            )
+        }
+    }
+
+    fun revealCell(x: Int, y: Int) {
+        val current = _puzzle.value as? PuzzleState.Sweep ?: return
+        updatePuzzle(current.copy(board = current.board.reveal(x, y)))
+    }
+
+    fun flagCell(x: Int, y: Int) {
+        val current = _puzzle.value as? PuzzleState.Sweep ?: return
+        updatePuzzle(current.copy(board = current.board.toggleFlag(x, y)))
+    }
+
+    fun searchBush(x: Int, y: Int) {
+        val current = _puzzle.value as? PuzzleState.Hunt ?: return
+        updatePuzzle(current.copy(hunt = current.hunt.search(x, y)))
+    }
+
+    fun tickPot(deltaMillis: Long, holding: Boolean) {
+        val current = _puzzle.value as? PuzzleState.Cook ?: return
+        updatePuzzle(current.copy(game = current.game.step(deltaMillis, holding)))
+    }
+
+    /** Applies a puzzle's new state, awarding the win the moment it happens. */
+    private fun updatePuzzle(next: PuzzleState) {
+        val was = _puzzle.value?.outcome
+        _puzzle.value = next
+        if (was == PuzzleOutcome.IN_PROGRESS && next.outcome == PuzzleOutcome.WON) {
+            val win = PuzzleInvite.win(_state.value, next.loveInterestId, next.kind, now())
+            _state.value = win.state
+            _reward.value = Reward(
+                loveInterestId = next.loveInterestId,
+                line = "You did that together.",
+                points = win.points,
+                boosted = isBoosted(),
+                newRank = win.newRank,
+                unlockedExpression = win.unlockedExpression,
+            )
+            persist()
+        }
+    }
+
+    /** Pays Stars for an immediate second go. Waiting remains free. */
+    fun retryPuzzleWithStars() {
+        val current = _puzzle.value ?: return
+        if (!_state.value.wallet.canAfford(PuzzleRetry.STAR_COST)) return
+        _state.update { it.copy(wallet = it.wallet.spend(PuzzleRetry.STAR_COST)) }
+        _puzzle.value = freshPuzzle(current.loveInterestId, now().toInt() + 1)
+        persist()
+    }
+
+    /** Watches an ad for an immediate second go. A skipped or missing ad costs nothing. */
+    fun retryPuzzleWithAd() {
+        val current = _puzzle.value ?: return
+        viewModelScope.launch {
+            when (ads.showRewardedAd()) {
+                AdResult.Watched -> _puzzle.value = freshPuzzle(current.loveInterestId, now().toInt() + 2)
+                AdResult.Skipped -> Unit
+                is AdResult.Unavailable -> {
+                    _adReady.value = false
+                    _overworldMessage.value = "No ad available right now."
+                }
+            }
+        }
+    }
+
+    fun leavePuzzle() {
+        _puzzle.value = null
+        _screen.value = Screen.Overworld
     }
 
     // ------------------------------------------------------------------ store
